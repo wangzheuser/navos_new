@@ -1,9 +1,19 @@
 import {
   YydsMailError,
   type YydsFailureKind,
-  type YydsMailClient,
-  type YydsMailbox
+  type YydsMailbox,
+  type YydsMailboxAuth
 } from "../protocols/mail/yyds-mail.js";
+
+/**
+ * 注册流程对邮箱渠道的最小依赖:只需建箱和收验证码两个能力。
+ * YydsMailClient 与 ZeroConfigMailClient(免配置渠道)都满足此接口,
+ * 因此注册服务对二者无差别,可通过 yydsClientProvider 自由切换。
+ */
+export interface RegistrationMailClient {
+  createMailbox(input?: { domain?: string }): Promise<YydsMailbox>;
+  findVerificationCode(auth: YydsMailboxAuth): Promise<{ code?: string; message?: unknown }>;
+}
 import type { VipBalance, VipClient } from "../protocols/vip-client.js";
 import type { AccountService } from "./account-service.js";
 import type { RedisRegistrationMailboxLimiter } from "./registration-mailbox-limiter.js";
@@ -18,8 +28,8 @@ export interface RegistrationDomainRecorder {
 }
 
 export interface RegistrationServiceOptions {
-  yydsClient?: YydsMailClient;
-  yydsClientProvider?: () => Promise<YydsMailClient | undefined> | YydsMailClient | undefined;
+  yydsClient?: RegistrationMailClient;
+  yydsClientProvider?: () => Promise<RegistrationMailClient | undefined> | RegistrationMailClient | undefined;
   vipClient: VipClient;
   accountService: AccountService;
   domainPicker?: () => Promise<RegistrationDomainPick | undefined> | RegistrationDomainPick | undefined;
@@ -163,8 +173,8 @@ export function generateCompanyInfo(): {
 }
 
 export class RegistrationService {
-  private readonly yydsClient?: YydsMailClient;
-  private readonly yydsClientProvider?: () => Promise<YydsMailClient | undefined> | YydsMailClient | undefined;
+  private readonly yydsClient?: RegistrationMailClient;
+  private readonly yydsClientProvider?: () => Promise<RegistrationMailClient | undefined> | RegistrationMailClient | undefined;
   private readonly vipClient: VipClient;
   private readonly accountService: AccountService;
   private readonly domainPicker?: () => Promise<RegistrationDomainPick | undefined> | RegistrationDomainPick | undefined;
@@ -506,7 +516,7 @@ export class RegistrationService {
     return normalizeComparableDomain(pickedDomain) === normalizeComparableDomain(domain) ? domain : undefined;
   }
 
-  private async resolveYydsClient(): Promise<YydsMailClient> {
+  private async resolveYydsClient(): Promise<RegistrationMailClient> {
     const client = this.yydsClientProvider
       ? await this.yydsClientProvider()
       : this.yydsClient;
