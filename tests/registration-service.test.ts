@@ -135,6 +135,65 @@ describe("RegistrationService", () => {
     expect(createMailboxCall?.[1]?.headers).toMatchObject({ "x-api-key": "ac-db-key" });
   });
 
+  it("reuses one stateful mail client for mailbox creation and message polling", async () => {
+    const vipClient = new VipClient({
+      baseUrl: "https://vip.test",
+      hmacSecret: "test-secret-32!!",
+      fetchImpl: vipFetchForPipeline({})
+    });
+    const yydsClientProvider = vi.fn(async () => {
+      let mailboxCreated = false;
+      return {
+        async createMailbox() {
+          mailboxCreated = true;
+          return { address: "stateful@mail.test" };
+        },
+        async findVerificationCode() {
+          if (!mailboxCreated) throw new Error("mailbox has not been created");
+          return { code: "445566" };
+        }
+      };
+    });
+    const service = new RegistrationService({
+      yydsClientProvider,
+      vipClient,
+      accountService,
+      maxPollAttempts: 1,
+      pollIntervalMs: 1,
+      mailboxMinIntervalMs: 0
+    });
+
+    const result = await service.registerOne("tempmail_lol");
+
+    expect(result.success).toBe(true);
+    expect(yydsClientProvider).toHaveBeenCalledTimes(1);
+    expect(yydsClientProvider).toHaveBeenCalledWith("tempmail_lol");
+  });
+
+  it("fails directly when the selected YYDS channel is not configured", async () => {
+    const yydsClientProvider = vi.fn(async () => undefined);
+    const service = new RegistrationService({
+      yydsClientProvider,
+      vipClient: new VipClient({
+        baseUrl: "https://vip.test",
+        hmacSecret: "test-secret-32!!",
+        fetchImpl: vipFetchForPipeline({})
+      }),
+      accountService,
+      mailboxMinIntervalMs: 0
+    });
+
+    const result = await service.registerOne("yyds");
+
+    expect(result).toMatchObject({
+      success: false,
+      error: "YYDS Mail API key is not configured",
+      failureKind: "mailbox_create_failed"
+    });
+    expect(yydsClientProvider).toHaveBeenCalledOnce();
+    expect(yydsClientProvider).toHaveBeenCalledWith("yyds");
+  });
+
   it("uses a picked YYDS domain for mailbox creation and records the domain in results", async () => {
     const vipFetch = vipFetchForPipeline({});
     const mailFetch = mailFetchForCode("domain@mail.good.test", "mail-token", "445566");

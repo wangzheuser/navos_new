@@ -4,6 +4,10 @@ import {
   type YydsMailbox,
   type YydsMailboxAuth
 } from "../protocols/mail/yyds-mail.js";
+import {
+  DEFAULT_REGISTRATION_MAIL_CHANNEL,
+  type RegistrationMailChannel
+} from "./registration-job-types.js";
 
 /**
  * 注册流程对邮箱渠道的最小依赖:只需建箱和收验证码两个能力。
@@ -29,7 +33,7 @@ export interface RegistrationDomainRecorder {
 
 export interface RegistrationServiceOptions {
   yydsClient?: RegistrationMailClient;
-  yydsClientProvider?: () => Promise<RegistrationMailClient | undefined> | RegistrationMailClient | undefined;
+  yydsClientProvider?: (mailboxChannel: RegistrationMailChannel) => Promise<RegistrationMailClient | undefined> | RegistrationMailClient | undefined;
   vipClient: VipClient;
   accountService: AccountService;
   domainPicker?: () => Promise<RegistrationDomainPick | undefined> | RegistrationDomainPick | undefined;
@@ -174,7 +178,7 @@ export function generateCompanyInfo(): {
 
 export class RegistrationService {
   private readonly yydsClient?: RegistrationMailClient;
-  private readonly yydsClientProvider?: () => Promise<RegistrationMailClient | undefined> | RegistrationMailClient | undefined;
+  private readonly yydsClientProvider?: (mailboxChannel: RegistrationMailChannel) => Promise<RegistrationMailClient | undefined> | RegistrationMailClient | undefined;
   private readonly vipClient: VipClient;
   private readonly accountService: AccountService;
   private readonly domainPicker?: () => Promise<RegistrationDomainPick | undefined> | RegistrationDomainPick | undefined;
@@ -204,7 +208,7 @@ export class RegistrationService {
   }
 
   /** Full registration pipeline for a single account. */
-  async registerOne(): Promise<RegistrationResult> {
+  async registerOne(mailboxChannel: RegistrationMailChannel = DEFAULT_REGISTRATION_MAIL_CHANNEL): Promise<RegistrationResult> {
     const startedAt = Date.now();
     let pickedDomain: string | undefined;
     let resultDomain: string | undefined;
@@ -213,10 +217,12 @@ export class RegistrationService {
     let phase: "pick_domain" | "mailbox_create" | "send_code" | "poll" | "login" | "import" = "pick_domain";
 
     try {
-      // 1. Create temp mailbox via YYDS
+      // 1. Create a temporary mailbox through the selected channel
       pickedDomain = (await this.domainPicker?.())?.domain;
       phase = "mailbox_create";
-      const mailboxResult = await this.createMailboxWithRetry(pickedDomain);
+      // 建箱和收信必须复用同一客户端，零配置渠道的收信凭证保存在实例中。
+      const mailClient = await this.resolveYydsClient(mailboxChannel);
+      const mailboxResult = await this.createMailboxWithRetry(mailClient, pickedDomain);
       const mailbox = mailboxResult.mailbox;
       retryCount = mailboxResult.retryCount;
       email = mailbox.address;
@@ -227,9 +233,9 @@ export class RegistrationService {
       phase = "send_code";
       await this.vipClient.sendEmailCode(email);
 
-      // 3. Poll YYDS mailbox for verification code
+      // 3. Poll the same mailbox client for the verification code
       phase = "poll";
-      const pollResult = await this.pollVerificationCode(email, mailboxToken);
+      const pollResult = await this.pollVerificationCode(mailClient, email, mailboxToken);
       if (pollResult.failure) {
         return {
           success: false,
@@ -385,12 +391,13 @@ export class RegistrationService {
     };
   }
 
+  /** Poll the selected mailbox until a verification code is available. */
   private async pollVerificationCode(
+    mailClient: RegistrationMailClient,
     email: string,
     mailboxToken?: string
   ): Promise<{ code?: string; failure?: { message: string; failureKind: YydsFailureKind } }> {
     const auth = { address: email, token: mailboxToken };
-    const yydsClient = await this.resolveYydsClient();
     let lastPollFailure: { message: string; failureKind: YydsFailureKind } | undefined;
 
     for (let attempt = 0; attempt < this.maxPollAttempts; attempt++) {
@@ -399,7 +406,7 @@ export class RegistrationService {
       }
 
       try {
-        const result = await yydsClient.findVerificationCode(auth);
+        const result = await mailClient.findVerificationCode(auth);
         if (result.code) {
           return { code: result.code };
         }
@@ -433,12 +440,16 @@ export class RegistrationService {
     }
   }
 
-  private async createMailboxWithRetry(domain?: string): Promise<{ mailbox: YydsMailbox; retryCount: number }> {
+  /** Create a mailbox with the existing rate-limit retry policy. */
+  private async createMailboxWithRetry(
+    mailClient: RegistrationMailClient,
+    domain?: string
+  ): Promise<{ mailbox: YydsMailbox; retryCount: number }> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= this.maxMailboxCreateAttempts; attempt++) {
       try {
         return {
-          mailbox: await this.createMailboxInThrottledSlot(domain),
+          mailbox: await this.createMailboxInThrottledSlot(mailClient, domain),
           retryCount: attempt - 1
         };
       } catch (error) {
@@ -459,7 +470,11 @@ export class RegistrationService {
     );
   }
 
-  private async createMailboxInThrottledSlot(domain?: string): Promise<YydsMailbox> {
+  /** Run one mailbox creation inside the process-wide throttle. */
+  private async createMailboxInThrottledSlot(
+    mailClient: RegistrationMailClient,
+    domain?: string
+  ): Promise<YydsMailbox> {
     const previousGate = this.mailboxCreateGate;
     let releaseGate!: () => void;
     this.mailboxCreateGate = new Promise<void>((resolve) => {
@@ -476,7 +491,7 @@ export class RegistrationService {
         await sleep(waitMs);
       }
       this.lastMailboxCreateStartedAt = Date.now();
-      const create = async () => await (await this.resolveYydsClient()).createMailbox(domain ? { domain } : undefined);
+      const create = async () => await mailClient.createMailbox(domain ? { domain } : undefined);
       return this.mailboxLimiter ? await this.mailboxLimiter.run(create) : await create();
     } finally {
       releaseGate();
@@ -516,9 +531,10 @@ export class RegistrationService {
     return normalizeComparableDomain(pickedDomain) === normalizeComparableDomain(domain) ? domain : undefined;
   }
 
-  private async resolveYydsClient(): Promise<RegistrationMailClient> {
+  /** Resolve exactly one client for the requested channel. */
+  private async resolveYydsClient(mailboxChannel: RegistrationMailChannel): Promise<RegistrationMailClient> {
     const client = this.yydsClientProvider
-      ? await this.yydsClientProvider()
+      ? await this.yydsClientProvider(mailboxChannel)
       : this.yydsClient;
     if (!client) {
       throw new Error("YYDS Mail API key is not configured");

@@ -49,13 +49,17 @@ describe("ZeroConfigMailClient", () => {
   });
 
   it("所有渠道失败时抛出 YydsMailError", async () => {
+    const fetchImpl = vi.fn(fakeFetch({
+      "https://api.tempmail.lol/v2/inbox/create": { status: 500, body: {} },
+      "https://api.gonebox.email/api/v1/inboxes": { body: { data: { address: "unused@gonebox.email" } } }
+    }));
     const client = new ZeroConfigMailClient({
       providers: ["tempmail_lol"],
-      fetchImpl: fakeFetch({
-        "https://api.tempmail.lol/v2/inbox/create": { status: 500, body: {} }
-      }) as never
+      fetchImpl: fetchImpl as never
     });
 
     await expect(client.createMailbox()).rejects.toBeInstanceOf(YydsMailError);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain("api.tempmail.lol");
   });
 });

@@ -1,10 +1,12 @@
 import { Worker, type ConnectionOptions, type Job } from "bullmq";
 import type { RegistrationResult, RegistrationService } from "./registration-service.js";
 import { RegistrationScheduler } from "./registration-scheduler.js";
-import type {
-  RegistrationJobLog,
-  RegistrationJobPayload,
-  RegistrationJobProgress
+import {
+  normalizeRegistrationMailChannel,
+  type RegistrationJobLog,
+  type RegistrationJobPayload,
+  type RegistrationJobProgress,
+  type RegistrationMailChannel
 } from "./registration-job-types.js";
 
 const QUEUE_NAME = "registration";
@@ -57,6 +59,7 @@ export async function processRegistrationJob(
   const data = job.data;
 
   try {
+    const mailboxChannel = normalizeRegistrationMailChannel(data.mailboxChannel);
     const preStartCanceled = await isCancellationRequested(job, jobId, options);
     if (preStartCanceled && data.mode === "single") {
       await progress.update(0, 0, 0, 0, "warn", "registration job canceled before start");
@@ -64,11 +67,11 @@ export async function processRegistrationJob(
     }
 
     if (data.mode === "single") {
-      return await processSingleRegistration(progress, registrationService);
+      return await processSingleRegistration(progress, registrationService, mailboxChannel);
     }
 
     if (data.mode === "fill" || data.mode === "create") {
-      return await processBulkRegistration(jobId, data, progress, registrationService, options, preStartCanceled);
+      return await processBulkRegistration(jobId, data, progress, registrationService, mailboxChannel, options, preStartCanceled);
     }
 
     throw new Error("unsupported registration job mode");
@@ -94,13 +97,14 @@ export function createRegistrationWorker(options: RegistrationWorkerOptions): Wo
 
 async function processSingleRegistration(
   progress: ReturnType<typeof createProgressTracker>,
-  registrationService: RegistrationService
+  registrationService: RegistrationService,
+  mailboxChannel: RegistrationMailChannel
 ): Promise<RegistrationResult> {
   await progress.update(1, 0, 0, 1, "info", "single registration started");
 
   let result: RegistrationResult;
   try {
-    result = await registrationService.registerOne();
+    result = await registrationService.registerOne(mailboxChannel);
   } catch (error) {
     const message = errorMessage(error, "single registration failed");
     await progress.update(1, 0, 1, 1, "error", "single registration failed");
@@ -121,6 +125,7 @@ async function processBulkRegistration(
   data: BulkRegistrationJobPayload,
   progress: ReturnType<typeof createProgressTracker>,
   registrationService: RegistrationService,
+  mailboxChannel: RegistrationMailChannel,
   options: RegistrationProcessorOptions,
   preStartCanceled = false
 ): Promise<unknown> {
@@ -183,7 +188,7 @@ async function processBulkRegistration(
   const scheduler = new RegistrationScheduler({ maxInFlightAttempts: data.concurrency });
   const schedulerResult = await scheduler.run({
     planned,
-    runAttempt: async () => registerOneSafely(registrationService),
+    runAttempt: async () => registerOneSafely(registrationService, mailboxChannel),
     shouldStopScheduling: async () => isCancellationRequestedForId(jobId, options),
     probeFirstAttempt: data.mode === "create",
     onProgress: async (nextProgress) => {
@@ -301,9 +306,12 @@ function validateBulkRegistrationPayload(data: BulkRegistrationJobPayload): void
   }
 }
 
-async function registerOneSafely(registrationService: RegistrationService): Promise<RegistrationResult> {
+async function registerOneSafely(
+  registrationService: RegistrationService,
+  mailboxChannel: RegistrationMailChannel
+): Promise<RegistrationResult> {
   try {
-    return await registrationService.registerOne();
+    return await registrationService.registerOne(mailboxChannel);
   } catch (error) {
     return { success: false, error: errorMessage(error, "registration failed") };
   }

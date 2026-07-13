@@ -603,7 +603,7 @@ describe("admin app gate", () => {
         return Response.json([]);
       }
       if (path === "/api/registration/jobs" && init?.method === "POST") {
-        expect(JSON.parse(String(init.body))).toEqual({ mode: "single" });
+        expect(JSON.parse(String(init.body))).toEqual({ mode: "single", mailboxChannel: "tempmail_lol" });
         return Response.json({ jobId: "job-1" });
       }
       if (path === "/api/registration/jobs/job-1") {
@@ -632,6 +632,7 @@ describe("admin app gate", () => {
       expect(screen.getAllByRole("heading", { name: "账号池" }).length).toBeGreaterThan(0);
     });
     expect(screen.getByLabelText("任务并发")).toHaveAttribute("aria-valuemax", "5000");
+    expect(screen.getByText("TempMail.lol")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "启动单个注册" }));
 
     await waitFor(() => {
@@ -680,10 +681,17 @@ describe("admin app gate", () => {
 
     fireEvent.change(await screen.findByLabelText("新增数量"), { target: { value: "100" } });
     fireEvent.change(screen.getByLabelText("任务并发"), { target: { value: "6" } });
+    fireEvent.mouseDown(screen.getByText("TempMail.lol"));
+    fireEvent.click(await screen.findByText("GoneBox"));
     fireEvent.click(screen.getByRole("button", { name: "新增注册" }));
 
     const postCall = fetchMock.mock.calls.find(([path, init]) => path === "/api/registration/jobs" && init?.method === "POST");
-    expect(JSON.parse(postCall?.[1]?.body as string)).toEqual({ mode: "create", count: 100, concurrency: 6 });
+    expect(JSON.parse(postCall?.[1]?.body as string)).toEqual({
+      mode: "create",
+      count: 100,
+      concurrency: 6,
+      mailboxChannel: "gonebox"
+    });
     expect(screen.queryByRole("button", { name: "补齐账号池" })).not.toBeInTheDocument();
   });
 

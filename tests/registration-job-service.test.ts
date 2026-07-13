@@ -1,17 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { RegistrationJobService, type RegistrationQueuePort } from "../src/services/registration-job-service.js";
-import type { RegistrationJobSnapshot, RegistrationJobState } from "../src/services/registration-job-types.js";
+import type {
+  RegistrationJobPayload,
+  RegistrationJobSnapshot,
+  RegistrationJobState
+} from "../src/services/registration-job-types.js";
 
 class FakeRegistrationQueue implements RegistrationQueuePort {
   readonly jobs = new Map<string, RegistrationJobSnapshot>();
+  readonly added: RegistrationJobPayload[] = [];
   private nextId = 1;
 
-  async add(
-    data:
-      | { mode: "single" }
-      | { mode: "fill"; target: number; concurrency: number }
-      | { mode: "create"; count: number; concurrency: number }
-  ): Promise<string> {
+  async add(data: RegistrationJobPayload): Promise<string> {
+    this.added.push(data);
     const id = `job-${this.nextId++}`;
     this.jobs.set(id, {
       id,
@@ -62,12 +63,39 @@ describe("RegistrationJobService", () => {
 
     expect(single).toEqual({ jobId: "job-1" });
     expect(fill).toEqual({ jobId: "job-2" });
+    expect(queue.added).toEqual([
+      { mode: "single", mailboxChannel: "tempmail_lol" },
+      { mode: "fill", target: 8, concurrency: 2, mailboxChannel: "tempmail_lol" }
+    ]);
     expect(await service.getJob("job-2")).toMatchObject({
       id: "job-2",
       mode: "fill",
       target: 8,
       concurrency: 2
     });
+  });
+
+  it.each(["yyds", "tempmail_lol", "gonebox"] as const)("preserves the selected mail channel: %s", async (mailboxChannel) => {
+    const queue = new FakeRegistrationQueue();
+    const service = new RegistrationJobService(queue, {
+      defaultTarget: 8,
+      defaultConcurrency: 2
+    });
+
+    await service.createJob({ mode: "single", mailboxChannel });
+
+    expect(queue.added[0]).toEqual({ mode: "single", mailboxChannel });
+  });
+
+  it("rejects an unknown mail channel", async () => {
+    const queue = new FakeRegistrationQueue();
+    const service = new RegistrationJobService(queue, {
+      defaultTarget: 8,
+      defaultConcurrency: 2
+    });
+
+    await expect(service.createJob({ mode: "single", mailboxChannel: "auto" } as never)).rejects.toThrow(/mailboxChannel/);
+    expect(queue.added).toHaveLength(0);
   });
 
   it("creates explicit create-count jobs without using fill defaults", async () => {

@@ -1,8 +1,9 @@
-import type {
-  RegistrationJobCreateResponse,
-  RegistrationJobCreateInput,
-  RegistrationJobPayload,
-  RegistrationJobSnapshot
+import {
+  normalizeRegistrationMailChannel,
+  type RegistrationJobCreateResponse,
+  type RegistrationJobCreateInput,
+  type RegistrationJobPayload,
+  type RegistrationJobSnapshot
 } from "./registration-job-types.js";
 
 export interface RegistrationQueuePort {
@@ -82,9 +83,15 @@ export class RegistrationJobService implements RegistrationJobServicePort {
     if (mode !== "single" && mode !== "fill" && mode !== "create") {
       throw new RegistrationJobValidationError('mode must be one of "single", "fill", or "create"');
     }
+    let mailboxChannel;
+    try {
+      mailboxChannel = normalizeRegistrationMailChannel(rawInput.mailboxChannel);
+    } catch (error) {
+      throw new RegistrationJobValidationError(error instanceof Error ? error.message : "invalid mailboxChannel");
+    }
 
     if (mode === "single") {
-      return { mode: "single" };
+      return { mode: "single", mailboxChannel };
     }
 
     const concurrency = rawInput.concurrency === undefined ? this.options.defaultConcurrency : rawInput.concurrency;
@@ -103,14 +110,14 @@ export class RegistrationJobService implements RegistrationJobServicePort {
       if (typeof target !== "number" || !Number.isInteger(target) || target < 1 || target > MAX_BULK_REGISTRATION_COUNT) {
         throw new RegistrationJobValidationError(`target must be an integer from 1 to ${MAX_BULK_REGISTRATION_COUNT}`);
       }
-      return { mode: "fill", target, concurrency };
+      return { mode: "fill", target, concurrency, mailboxChannel };
     }
 
     const count = rawInput.count;
     if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > MAX_BULK_REGISTRATION_COUNT) {
       throw new RegistrationJobValidationError(`count must be an integer from 1 to ${MAX_BULK_REGISTRATION_COUNT}`);
     }
-    return { mode: "create", count, concurrency };
+    return { mode: "create", count, concurrency, mailboxChannel };
   }
 
   private validateInputObject(input: RegistrationJobCreateInput): Record<string, unknown> {

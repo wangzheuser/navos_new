@@ -100,16 +100,15 @@ const mailboxLimiter = new RedisRegistrationMailboxLimiter({
 });
 
 const registrationService = new RegistrationService({
-  yydsClientProvider: async () => {
-    const apiKey = await yydsMailConfigService.enabledApiKey();
-    // 配置了 YYDS Mail Key 时优先用它(可接管自定义域名池);
-    // 否则回退到免配置临时邮箱渠道,开源版新用户无需任何邮箱配置即可注册。
-    return apiKey
-      ? new YydsMailClient({
+  yydsClientProvider: async (mailboxChannel) => {
+    if (mailboxChannel === "yyds") {
+      const apiKey = await yydsMailConfigService.enabledApiKey();
+      return apiKey ? new YydsMailClient({
         baseUrl: DEFAULT_YYDS_MAIL_BASE_URL,
         apiKey
-      })
-      : new ZeroConfigMailClient();
+      }) : undefined;
+    }
+    return new ZeroConfigMailClient({ providers: [mailboxChannel] });
   },
   vipClient,
   accountService,

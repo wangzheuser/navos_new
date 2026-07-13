@@ -21,6 +21,7 @@ export interface Mailbox {
 
 export type RegistrationJobState = "queued" | "running" | "succeeded" | "failed" | "canceled";
 export type RegistrationJobMode = "single" | "fill" | "create";
+export type RegistrationMailChannel = "yyds" | "tempmail_lol" | "gonebox";
 
 export interface RegistrationJobLog {
   at: number;

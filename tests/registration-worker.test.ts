@@ -115,6 +115,7 @@ describe("processRegistrationJob", () => {
     await expect(processRegistrationJob(job, registrationService)).resolves.toBe(result);
 
     expect(registrationService.registerOne).toHaveBeenCalledTimes(1);
+    expect(registrationService.registerOne).toHaveBeenCalledWith("tempmail_lol");
     expect(lastProgress(job)).toMatchObject({
       started: 1,
       completed: 1,
@@ -630,7 +631,7 @@ describe("processRegistrationJob", () => {
       getStats: vi.fn(async () => stats({ activeCount: 100 })),
       registerOne: vi.fn(async () => success(1))
     });
-    const job = makeJob({ mode: "create", count: 4, concurrency: 6 });
+    const job = makeJob({ mode: "create", count: 4, concurrency: 6, mailboxChannel: "gonebox" });
 
     const result = await processRegistrationJob(job, registrationService);
 
@@ -644,6 +645,9 @@ describe("processRegistrationJob", () => {
       failed: 0
     });
     expect(registrationService.registerOne).toHaveBeenCalledTimes(4);
+    for (const call of vi.mocked(registrationService.registerOne).mock.calls) {
+      expect(call).toEqual(["gonebox"]);
+    }
   });
 
   it("stops create scheduling when quota is exhausted", async () => {

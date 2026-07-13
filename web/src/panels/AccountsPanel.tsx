@@ -14,6 +14,7 @@ import type {
   BalanceReconcileScope,
   RegistrationJobMode,
   RegistrationJobView,
+  RegistrationMailChannel,
   StatusState
 } from "../types";
 
@@ -32,6 +33,7 @@ export function AccountsPanel({
   const [job, setJob] = useState<RegistrationJobView | undefined>();
   const [createCount, setCreateCount] = useState(100);
   const [jobConcurrency, setJobConcurrency] = useState(6);
+  const [mailboxChannel, setMailboxChannel] = useState<RegistrationMailChannel>("tempmail_lol");
   const [balanceScope, setBalanceScope] = useState<BalanceReconcileScope>("depleted");
   const [balanceLimit, setBalanceLimit] = useState(1000);
   const [balanceConcurrency, setBalanceConcurrency] = useState(10);
@@ -102,8 +104,8 @@ export function AccountsPanel({
     refreshedTerminalJobId.current = undefined;
     setStatus({ kind: "loading", message: "创建注册任务中" });
     const payload = mode === "create"
-        ? { mode: "create" as const, count: createCount, concurrency: jobConcurrency }
-        : { mode: "single" as const };
+        ? { mode: "create" as const, count: createCount, concurrency: jobConcurrency, mailboxChannel }
+        : { mode: "single" as const, mailboxChannel };
     const total = mode === "create" ? createCount : 1;
 
     try {
@@ -373,7 +375,20 @@ export function AccountsPanel({
       </div>
 
       <div className="registration-ops" aria-label="注册任务">
-        <div className="form-row two compact">
+        <div className="form-row three compact">
+          <label className="text-field ant-field">
+            <span>邮箱渠道</span>
+            <Select<RegistrationMailChannel>
+              aria-label="邮箱渠道"
+              options={[
+                { value: "yyds", label: "YYDS Mail" },
+                { value: "tempmail_lol", label: "TempMail.lol" },
+                { value: "gonebox", label: "GoneBox" }
+              ]}
+              value={mailboxChannel}
+              onChange={setMailboxChannel}
+            />
+          </label>
           <label className="text-field ant-field">
             <span>新增数量</span>
             <InputNumber
