@@ -43,6 +43,7 @@ import { YydsMailClient, YydsMailError } from "../protocols/mail/yyds-mail.js";
 import { reconcileAccountBalances } from "../services/account-balance-reconciler.js";
 import { AccountService, IMAGE_ACCOUNT_COST } from "../services/account-service.js";
 import { RuntimeConfigService, type RuntimeConfigUpdateInput } from "../services/runtime-config-service.js";
+import { NetworkProxyConfigService } from "../services/network-proxy-config-service.js";
 import {
   classifyProviderException,
   classifyProviderResult,
@@ -70,6 +71,11 @@ import { SecretBox } from "../security/secretbox.js";
 import { InMemoryAccountStore, type AccountRecord } from "../store/account-store.js";
 import { InMemoryImageTaskStore, type ImageTaskRecord, type ImageTaskStore } from "../store/image-task-store.js";
 import { InMemoryRuntimeConfigStore } from "../store/runtime-config-store.js";
+import {
+  InMemoryNetworkProxyConfigStore,
+  type NetworkProxyConfigStore,
+  type NetworkProxyScope
+} from "../store/network-proxy-config-store.js";
 import { InMemoryYydsDomainPoolStore, type YydsDomainPoolStore } from "../store/yyds-domain-pool-store.js";
 import { InMemoryYydsMailConfigStore, type YydsMailConfigStore } from "../store/yyds-mail-config-store.js";
 import { InMemoryVideoTaskStore, type VideoTaskRecord, type VideoTaskStore } from "../store/video-task-store.js";
@@ -91,6 +97,8 @@ export interface CreateAppOptions {
   yydsMailBaseUrl?: string;
   yydsMailConfigSecret?: string;
   yydsMailConfigStore?: YydsMailConfigStore;
+  networkProxyConfigSecret?: string;
+  networkProxyConfigStore?: NetworkProxyConfigStore;
   yydsDomainPoolStore?: YydsDomainPoolStore;
   yydsDomainFetchImpl?: () => Promise<unknown[]>;
   imageTaskStore?: ImageTaskStore;
@@ -628,6 +636,7 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
   const app = Fastify({ logger: false, bodyLimit: JSON_BODY_LIMIT_BYTES });
   const accountService = options.accountService ?? new AccountService(new InMemoryAccountStore(options.defaultAccount));
   const yydsMailConfigStore = options.yydsMailConfigStore ?? new InMemoryYydsMailConfigStore();
+  const networkProxyConfigStore = options.networkProxyConfigStore ?? new InMemoryNetworkProxyConfigStore();
   const yydsDomainPoolStore = options.yydsDomainPoolStore ?? new InMemoryYydsDomainPoolStore();
   const yydsDomainPool = new YydsDomainPool({
     store: yydsDomainPoolStore,
@@ -642,6 +651,10 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
       normalizeSecretRoot(options.yydsMailConfigSecret ?? options.masterApiKey),
       "navos:yyds_mail_config:v1"
     )
+  );
+  const networkProxyConfigService = new NetworkProxyConfigService(
+    networkProxyConfigStore,
+    normalizeSecretRoot(options.networkProxyConfigSecret ?? options.masterApiKey)
   );
   const videoTaskStore = options.videoTaskStore ?? new InMemoryVideoTaskStore();
   const imageTaskStore = options.imageTaskStore ?? new InMemoryImageTaskStore();
@@ -1866,6 +1879,37 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
       await sendBadRequest(reply, error);
     }
   });
+
+  /** Register one master-only proxy config resource. */
+  function registerNetworkProxyConfigRoutes(scope: NetworkProxyScope, path: string): void {
+    app.get(path, async (request, reply) => {
+      if (!requireLocalAuth(request, reply)) {
+        return;
+      }
+      await reply.send(await networkProxyConfigService.get(scope));
+    });
+
+    app.put(path, async (request, reply) => {
+      if (!requireLocalAuth(request, reply)) {
+        return;
+      }
+      try {
+        await reply.send(await networkProxyConfigService.save(scope, bodyRecord(request).urlTemplate));
+      } catch (error) {
+        await sendBadRequest(reply, error);
+      }
+    });
+
+    app.delete(path, async (request, reply) => {
+      if (!requireLocalAuth(request, reply)) {
+        return;
+      }
+      await reply.send(await networkProxyConfigService.clear(scope));
+    });
+  }
+
+  registerNetworkProxyConfigRoutes("mailbox", "/api/mail/proxy/config");
+  registerNetworkProxyConfigRoutes("registration", "/api/registration/proxy/config");
 
   app.get("/api/mail/yyds/domains", async (request, reply) => {
     if (!requireLocalAuth(request, reply)) {

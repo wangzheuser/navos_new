@@ -109,10 +109,12 @@ describe("RegistrationService", () => {
     const vipFetch = vipFetchForPipeline({});
     const mailFetch = mailFetchForCode("dynamic@mail.test", "mail-dynamic-token", "445566");
     const vipClient = new VipClient({ baseUrl: "https://vip.test", hmacSecret: "test-secret-32!!", fetchImpl: vipFetch });
-    const yydsClientProvider = vi.fn(async () => new YydsMailClient({
-      baseUrl: "https://mail.test/v1",
-      apiKey: "ac-db-key",
-      fetchImpl: mailFetch
+    const yydsClientProvider = vi.fn(async () => ({
+      client: new YydsMailClient({
+        baseUrl: "https://mail.test/v1",
+        apiKey: "ac-db-key",
+        fetchImpl: mailFetch
+      })
     }));
 
     const service = new RegistrationService({
@@ -144,13 +146,15 @@ describe("RegistrationService", () => {
     const yydsClientProvider = vi.fn(async () => {
       let mailboxCreated = false;
       return {
-        async createMailbox() {
-          mailboxCreated = true;
-          return { address: "stateful@mail.test" };
-        },
-        async findVerificationCode() {
-          if (!mailboxCreated) throw new Error("mailbox has not been created");
-          return { code: "445566" };
+        client: {
+          async createMailbox() {
+            mailboxCreated = true;
+            return { address: "stateful@mail.test" };
+          },
+          async findVerificationCode() {
+            if (!mailboxCreated) throw new Error("mailbox has not been created");
+            return { code: "445566" };
+          }
         }
       };
     });
@@ -167,7 +171,57 @@ describe("RegistrationService", () => {
 
     expect(result.success).toBe(true);
     expect(yydsClientProvider).toHaveBeenCalledTimes(1);
-    expect(yydsClientProvider).toHaveBeenCalledWith("tempmail_lol");
+    expect(yydsClientProvider).toHaveBeenCalledWith("tempmail_lol", expect.stringMatching(/^[a-f0-9]{32}$/));
+  });
+
+  it("uses separate proxy sessions for mail and VIP registration and disposes both", async () => {
+    const mailDispose = vi.fn(async () => undefined);
+    const vipDispose = vi.fn(async () => undefined);
+    const yydsClientProvider = vi.fn(async () => ({
+      client: {
+        async createMailbox() {
+          return { address: "proxy@mail.test", token: "mail-token" };
+        },
+        async findVerificationCode() {
+          return { code: "445566" };
+        }
+      },
+      dispose: mailDispose
+    }));
+    const vipClientProvider = vi.fn(async () => ({
+      client: new VipClient({
+        baseUrl: "https://vip.test",
+        hmacSecret: "test-secret-32!!",
+        fetchImpl: vipFetchForPipeline({ uid: "proxy-uid", token: "proxy-token" })
+      }),
+      dispose: vipDispose
+    }));
+    const service = new RegistrationService({
+      yydsClientProvider,
+      vipClientProvider,
+      vipClient: new VipClient({
+        baseUrl: "https://direct.test",
+        hmacSecret: "test-secret-32!!",
+        fetchImpl: vi.fn(async () => {
+          throw new Error("direct VIP client must not be used");
+        })
+      }),
+      accountService,
+      maxPollAttempts: 1,
+      pollIntervalMs: 1,
+      mailboxMinIntervalMs: 0
+    });
+
+    const result = await service.registerOne("tempmail_lol");
+
+    expect(result.success).toBe(true);
+    const mailboxId = yydsClientProvider.mock.calls[0][1];
+    const registrationId = vipClientProvider.mock.calls[0][0];
+    expect(mailboxId).toMatch(/^[a-f0-9]{32}$/);
+    expect(registrationId).toMatch(/^[a-f0-9]{32}$/);
+    expect(registrationId).not.toBe(mailboxId);
+    expect(mailDispose).toHaveBeenCalledOnce();
+    expect(vipDispose).toHaveBeenCalledOnce();
   });
 
   it("fails directly when the selected YYDS channel is not configured", async () => {
@@ -191,7 +245,7 @@ describe("RegistrationService", () => {
       failureKind: "mailbox_create_failed"
     });
     expect(yydsClientProvider).toHaveBeenCalledOnce();
-    expect(yydsClientProvider).toHaveBeenCalledWith("yyds");
+    expect(yydsClientProvider).toHaveBeenCalledWith("yyds", expect.stringMatching(/^[a-f0-9]{32}$/));
   });
 
   it("uses a picked YYDS domain for mailbox creation and records the domain in results", async () => {
@@ -664,6 +718,30 @@ describe("RegistrationService", () => {
     expect(result.success).toBe(true);
     expect(result.balance).toBe(1000);
     expect(result.certCredits).toBe(0);
+  });
+
+  it.each([
+    [3, "balance query"],
+    [4, "certification"]
+  ])("fails registration when the VIP proxy connection fails at step %i (%s)", async (failedStep) => {
+    let step = 0;
+    const healthyVipFetch = vipFetchForPipeline({});
+    const vipFetch = vi.fn(async (url: string, init?: RequestInit) => {
+      step += 1;
+      if (step === failedStep) {
+        throw new Error("proxy connection failed");
+      }
+      return healthyVipFetch(url, init);
+    });
+    const service = buildService(
+      vipFetch,
+      mailFetchForCode("proxy-fail@mail.test", "mt", "654321")
+    );
+
+    const result = await service.registerOne();
+
+    expect(result).toMatchObject({ success: false, error: "proxy connection failed" });
+    expect(await accountService.listAccounts()).toHaveLength(0);
   });
 
   it("fillPool registers until target is reached", async () => {

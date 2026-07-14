@@ -3,11 +3,13 @@ import { Input, Select } from "antd";
 export function TextField({
   label,
   onChange,
+  placeholder,
   type = "text",
   value
 }: {
   label: string;
   onChange: (value: string) => void;
+  placeholder?: string;
   type?: string;
   value: string;
 }) {
@@ -16,6 +18,7 @@ export function TextField({
       <Input.Password
         aria-label={label}
         autoComplete="off"
+        placeholder={placeholder}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -24,6 +27,7 @@ export function TextField({
       <Input
         aria-label={label}
         autoComplete="off"
+        placeholder={placeholder}
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}

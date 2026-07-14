@@ -12,6 +12,7 @@ import { createApp } from "../src/server/app.js";
 import { InMemoryAccountStore } from "../src/store/account-store.js";
 import { InMemoryImageTaskStore } from "../src/store/image-task-store.js";
 import { InMemoryRuntimeConfigStore } from "../src/store/runtime-config-store.js";
+import { InMemoryNetworkProxyConfigStore } from "../src/store/network-proxy-config-store.js";
 import { InMemoryYydsMailConfigStore } from "../src/store/yyds-mail-config-store.js";
 import { SecretBox } from "../src/security/secretbox.js";
 import { InMemoryVideoTaskStore } from "../src/store/video-task-store.js";
@@ -88,6 +89,59 @@ function uidFromAuthorization(authorization: string | undefined): string {
 }
 
 describe("server routes", () => {
+  it("protects, encrypts and independently clears network proxy configs", async () => {
+    const proxyStore = new InMemoryNetworkProxyConfigStore();
+    const app = createApp({
+      masterApiKey: "sk-test",
+      providerBaseUrl: "https://upstream.test",
+      providerAuthMode: "uid-token",
+      networkProxyConfigStore: proxyStore,
+      fetchImpl: async () => Response.json({ ok: true })
+    });
+    const template = "http://node.{uuid}:pass@172.17.0.1:9200";
+
+    expect((await app.inject({ method: "GET", url: "/api/mail/proxy/config" })).statusCode).toBe(401);
+
+    const savedMailbox = await app.inject({
+      method: "PUT",
+      url: "/api/mail/proxy/config",
+      headers: { authorization: "Bearer sk-test" },
+      payload: { urlTemplate: template }
+    });
+    expect(savedMailbox.statusCode).toBe(200);
+    expect(savedMailbox.json()).toMatchObject({ configured: true });
+    expect(savedMailbox.body).not.toContain(template);
+    expect((await proxyStore.get("mailbox"))?.urlTemplateEnc).not.toContain(template);
+
+    const savedRegistration = await app.inject({
+      method: "PUT",
+      url: "/api/registration/proxy/config",
+      headers: { authorization: "Bearer sk-test" },
+      payload: { urlTemplate: template }
+    });
+    expect(savedRegistration.statusCode).toBe(200);
+
+    const invalid = await app.inject({
+      method: "PUT",
+      url: "/api/mail/proxy/config",
+      headers: { authorization: "Bearer sk-test" },
+      payload: { urlTemplate: "socks5://node.{uuid}:pass@127.0.0.1:9200" }
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.body).not.toContain("pass");
+
+    const cleared = await app.inject({
+      method: "DELETE",
+      url: "/api/mail/proxy/config",
+      headers: { authorization: "Bearer sk-test" }
+    });
+    expect(cleared.json()).toEqual({ configured: false });
+    expect(await proxyStore.get("mailbox")).toBeUndefined();
+    expect(await proxyStore.get("registration")).toBeDefined();
+
+    await app.close();
+  });
+
   it("protects and returns YYDS domain pool state", async () => {
     const domainStore = new InMemoryYydsDomainPoolStore();
     const app = createApp({

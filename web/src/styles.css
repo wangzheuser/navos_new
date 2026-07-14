@@ -1433,6 +1433,15 @@ a.button {
   padding: 16px 20px;
 }
 
+.network-proxy-card {
+  grid-column: auto;
+}
+
+.yyds-key-card {
+  grid-column: 1 / -1;
+  border-right: 0;
+}
+
 .runtime-config-panel,
 .domain-pool-panel {
   display: grid;

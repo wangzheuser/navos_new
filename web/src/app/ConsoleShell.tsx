@@ -81,7 +81,7 @@ export function ConsoleShell({
               {"\u8fd0\u884c\u914d\u7f6e"}
             </NavButton>
             <NavButton active={activePanel === "yydsConfig"} icon={<KeyRound size={17} />} onClick={() => onPanelChange("yydsConfig")}>
-              {"YYDS\u914d\u7f6e"}
+              邮箱配置
             </NavButton>
           </nav>
         </div>

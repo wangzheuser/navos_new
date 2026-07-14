@@ -104,8 +104,8 @@ describe("admin app gate", () => {
     const mainMenuNames = within(primaryNav).getAllByRole("button").map((button) => button.textContent?.trim());
     expect(mainMenuNames.indexOf("模型列表")).toBeLessThan(mainMenuNames.indexOf("图片生成"));
     expect(within(primaryNav).getByRole("button", { name: "视频生成" })).toBeInTheDocument();
-    expect(within(primaryNav).queryByRole("button", { name: "YYDS配置" })).not.toBeInTheDocument();
-    expect(within(configNav).getByRole("button", { name: "YYDS配置" })).toBeInTheDocument();
+    expect(within(primaryNav).queryByRole("button", { name: "邮箱配置" })).not.toBeInTheDocument();
+    expect(within(configNav).getByRole("button", { name: "邮箱配置" })).toBeInTheDocument();
     expect(within(configNav).queryByRole("button", { name: /COS/ })).not.toBeInTheDocument();
   });
 
@@ -1223,6 +1223,9 @@ describe("admin app gate", () => {
       if (path === "/api/mail/yyds/config" && init?.method === "GET") {
         return Response.json({ configured: true, apiKeyConfigured: true });
       }
+      if ((path === "/api/mail/proxy/config" || path === "/api/registration/proxy/config") && init?.method === "GET") {
+        return Response.json({ configured: false });
+      }
       if (path === "/api/mail/yyds/domains" && init?.method === "GET") {
         return Response.json({
           config: { enabled: true, mode: "auto-plus-whitelist", whitelist: [], blacklist: [], refreshIntervalMinutes: 30 },
@@ -1241,6 +1244,62 @@ describe("admin app gate", () => {
     expect(fetchMock).not.toHaveBeenCalledWith("/api/runtime-config", expect.anything());
   });
 
+  it("saves and clears mailbox and registration proxies without rendering secrets", async () => {
+    const savedPaths: string[] = [];
+    const template = "http://node.{uuid}:pass@172.17.0.1:9200";
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/mail/yyds/config" && init?.method === "GET") {
+        return Response.json({ configured: false });
+      }
+      if (path === "/api/mail/yyds/domains" && init?.method === "GET") {
+        return Response.json({
+          config: { enabled: true, mode: "auto-plus-whitelist", whitelist: [], blacklist: [], refreshIntervalMinutes: 30 },
+          domains: []
+        });
+      }
+      if (path === "/api/mail/proxy/config" || path === "/api/registration/proxy/config") {
+        if (init?.method === "PUT") {
+          expect(JSON.parse(String(init.body))).toEqual({ urlTemplate: template });
+          savedPaths.push(path);
+          return Response.json({ configured: true, updatedAt: 2 });
+        }
+        if (init?.method === "DELETE") {
+          return Response.json({ configured: false });
+        }
+        return Response.json({ configured: false });
+      }
+      return Response.json({ error: { message: `unexpected path ${path}` } }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<YydsMailConfigPanel apiKey="sk-local" />);
+
+    const mailboxInput = await screen.findByLabelText("邮箱网络代理地址");
+    const registrationInput = screen.getByLabelText("注册网络代理地址");
+    const mailboxForm = mailboxInput.closest("form")!;
+    const registrationForm = registrationInput.closest("form")!;
+
+    fireEvent.change(mailboxInput, { target: { value: template } });
+    fireEvent.click(within(mailboxForm).getByRole("button", { name: "保存代理" }));
+    fireEvent.change(registrationInput, { target: { value: template } });
+    fireEvent.click(within(registrationForm).getByRole("button", { name: "保存代理" }));
+
+    await waitFor(() => {
+      expect(savedPaths).toEqual(expect.arrayContaining([
+        "/api/mail/proxy/config",
+        "/api/registration/proxy/config"
+      ]));
+    });
+    expect(screen.queryByDisplayValue(template)).not.toBeInTheDocument();
+
+    fireEvent.click(within(mailboxForm).getByRole("button", { name: "清除代理" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认清除" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/mail/proxy/config", expect.objectContaining({ method: "DELETE" }));
+    });
+  });
+
   it("saves YYDS Mail config from the console without exposing the key", async () => {
     const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       expect(init?.headers).toMatchObject({ authorization: "Bearer sk-local" });
@@ -1249,6 +1308,9 @@ describe("admin app gate", () => {
         return Response.json([]);
       }
       if (path === "/api/mail/yyds/config" && init?.method === "GET") {
+        return Response.json({ configured: false });
+      }
+      if ((path === "/api/mail/proxy/config" || path === "/api/registration/proxy/config") && init?.method === "GET") {
         return Response.json({ configured: false });
       }
       if (path === "/api/mail/yyds/domains" && init?.method === "GET") {
@@ -1283,8 +1345,8 @@ describe("admin app gate", () => {
     fireEvent.change(screen.getByLabelText("Master API Key"), { target: { value: "sk-local" } });
     fireEvent.click(screen.getByRole("button", { name: "进入控制台" }));
 
-    await screen.findByRole("button", { name: "YYDS配置" });
-    fireEvent.click(screen.getByRole("button", { name: "YYDS配置" }));
+    await screen.findByRole("button", { name: "邮箱配置" });
+    fireEvent.click(screen.getByRole("button", { name: "邮箱配置" }));
 
     fireEvent.change(await screen.findByLabelText("YYDS Mail Key"), { target: { value: "ac-ui-key" } });
     fireEvent.click(screen.getByRole("button", { name: /保存 YYDS 配置/ }));
@@ -1305,6 +1367,9 @@ describe("admin app gate", () => {
       }
       if (path === "/api/mail/yyds/config" && init?.method === "GET") {
         return Response.json({ configured: true, apiKeyConfigured: true });
+      }
+      if ((path === "/api/mail/proxy/config" || path === "/api/registration/proxy/config") && init?.method === "GET") {
+        return Response.json({ configured: false });
       }
       if (path === "/api/mail/yyds/domains" && init?.method === "GET") {
         domainLoads += 1;
@@ -1342,7 +1407,7 @@ describe("admin app gate", () => {
     fireEvent.change(screen.getByLabelText("Master API Key"), { target: { value: "sk-local" } });
     fireEvent.click(screen.getByRole("button", { name: "进入控制台" }));
 
-    const yydsButton = await screen.findByRole("button", { name: /YYDS/ });
+    const yydsButton = await screen.findByRole("button", { name: "邮箱配置" });
     fireEvent.click(yydsButton);
 
     expect(await screen.findByText("healthy.test")).toBeInTheDocument();

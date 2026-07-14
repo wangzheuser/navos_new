@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   YydsMailError,
   type YydsFailureKind,
@@ -18,7 +19,7 @@ export interface RegistrationMailClient {
   createMailbox(input?: { domain?: string }): Promise<YydsMailbox>;
   findVerificationCode(auth: YydsMailboxAuth): Promise<{ code?: string; message?: unknown }>;
 }
-import type { VipBalance, VipClient } from "../protocols/vip-client.js";
+import { VipClientError, type VipBalance, type VipClient } from "../protocols/vip-client.js";
 import type { AccountService } from "./account-service.js";
 import type { RedisRegistrationMailboxLimiter } from "./registration-mailbox-limiter.js";
 
@@ -31,10 +32,21 @@ export interface RegistrationDomainRecorder {
   recordFailure(domain: string, kind: YydsFailureKind, error: string): Promise<void>;
 }
 
+export interface RegistrationClientSession<T> {
+  client: T;
+  dispose?: () => Promise<void> | void;
+}
+
 export interface RegistrationServiceOptions {
   yydsClient?: RegistrationMailClient;
-  yydsClientProvider?: (mailboxChannel: RegistrationMailChannel) => Promise<RegistrationMailClient | undefined> | RegistrationMailClient | undefined;
+  yydsClientProvider?: (
+    mailboxChannel: RegistrationMailChannel,
+    proxySessionId: string
+  ) => Promise<RegistrationClientSession<RegistrationMailClient> | undefined> | RegistrationClientSession<RegistrationMailClient> | undefined;
   vipClient: VipClient;
+  vipClientProvider?: (
+    proxySessionId: string
+  ) => Promise<RegistrationClientSession<VipClient>> | RegistrationClientSession<VipClient>;
   accountService: AccountService;
   domainPicker?: () => Promise<RegistrationDomainPick | undefined> | RegistrationDomainPick | undefined;
   domainRecorder?: RegistrationDomainRecorder;
@@ -178,8 +190,9 @@ export function generateCompanyInfo(): {
 
 export class RegistrationService {
   private readonly yydsClient?: RegistrationMailClient;
-  private readonly yydsClientProvider?: (mailboxChannel: RegistrationMailChannel) => Promise<RegistrationMailClient | undefined> | RegistrationMailClient | undefined;
+  private readonly yydsClientProvider?: RegistrationServiceOptions["yydsClientProvider"];
   private readonly vipClient: VipClient;
+  private readonly vipClientProvider?: RegistrationServiceOptions["vipClientProvider"];
   private readonly accountService: AccountService;
   private readonly domainPicker?: () => Promise<RegistrationDomainPick | undefined> | RegistrationDomainPick | undefined;
   private readonly domainRecorder?: RegistrationDomainRecorder;
@@ -196,6 +209,7 @@ export class RegistrationService {
     this.yydsClient = options.yydsClient;
     this.yydsClientProvider = options.yydsClientProvider;
     this.vipClient = options.vipClient;
+    this.vipClientProvider = options.vipClientProvider;
     this.accountService = options.accountService;
     this.domainPicker = options.domainPicker;
     this.domainRecorder = options.domainRecorder;
@@ -210,18 +224,31 @@ export class RegistrationService {
   /** Full registration pipeline for a single account. */
   async registerOne(mailboxChannel: RegistrationMailChannel = DEFAULT_REGISTRATION_MAIL_CHANNEL): Promise<RegistrationResult> {
     const startedAt = Date.now();
+    const mailboxProxyId = createProxySessionId();
+    const registrationProxyId = createProxySessionId(mailboxProxyId);
     let pickedDomain: string | undefined;
     let resultDomain: string | undefined;
     let email: string | undefined;
     let retryCount: number | undefined;
-    let phase: "pick_domain" | "mailbox_create" | "send_code" | "poll" | "login" | "import" = "pick_domain";
+    let phase: "setup" | "pick_domain" | "mailbox_create" | "send_code" | "poll" | "login" | "import" = "setup";
+    let mailSession: RegistrationClientSession<RegistrationMailClient> | undefined;
+    let vipSession: RegistrationClientSession<VipClient> | undefined;
 
     try {
-      // 1. Create a temporary mailbox through the selected channel
+      phase = "pick_domain";
       pickedDomain = (await this.domainPicker?.())?.domain;
+
+      // Keep mail and VIP registration traffic on separate stable proxy sessions.
+      phase = "mailbox_create";
+      mailSession = await this.resolveYydsClient(mailboxChannel, mailboxProxyId);
+      phase = "setup";
+      vipSession = await this.resolveVipClient(registrationProxyId);
+
+      // 1. Create a temporary mailbox through the selected channel
       phase = "mailbox_create";
       // 建箱和收信必须复用同一客户端，零配置渠道的收信凭证保存在实例中。
-      const mailClient = await this.resolveYydsClient(mailboxChannel);
+      const mailClient = mailSession.client;
+      const vipClient = vipSession.client;
       const mailboxResult = await this.createMailboxWithRetry(mailClient, pickedDomain);
       const mailbox = mailboxResult.mailbox;
       retryCount = mailboxResult.retryCount;
@@ -231,7 +258,7 @@ export class RegistrationService {
 
       // 2. Send verification code via VIP API
       phase = "send_code";
-      await this.vipClient.sendEmailCode(email);
+      await vipClient.sendEmailCode(email);
 
       // 3. Poll the same mailbox client for the verification code
       phase = "poll";
@@ -263,22 +290,25 @@ export class RegistrationService {
 
       // 4. Login/register via VIP API
       phase = "login";
-      const { uid, token } = await this.vipClient.login(email, pollResult.code);
+      const { uid, token } = await vipClient.login(email, pollResult.code);
 
       // 5. Query initial balance (should be 1000 from registration)
-      const balReg = await this.queryBalanceOrZero(uid, token);
+      const balReg = await this.queryBalanceOrZero(vipClient, uid, token);
 
       // 6. Enterprise certification (+1000 credits)
       let certCredits = 0;
       try {
         const licenseB64 = miniJpegBase64();
-        const licenseUrl = await this.vipClient.uploadBusinessLicense(uid, token, licenseB64);
+        const licenseUrl = await vipClient.uploadBusinessLicense(uid, token, licenseB64);
         const company = generateCompanyInfo();
-        certCredits = await this.vipClient.submitEnterpriseCert(uid, token, {
+        certCredits = await vipClient.submitEnterpriseCert(uid, token, {
           businessLicenseUrl: licenseUrl,
           ...company
         });
-      } catch {
+      } catch (error) {
+        if (error instanceof VipClientError && error.status === 0) {
+          throw error;
+        }
         // Enterprise cert failed, but account is still usable (1000 credits)
         certCredits = 0;
       }
@@ -332,6 +362,12 @@ export class RegistrationService {
         elapsedMs: Date.now() - startedAt,
         retryCount
       };
+    } finally {
+      // Cleanup failures must not override the registration result.
+      await Promise.all([
+        disposeSession(mailSession),
+        disposeSession(vipSession)
+      ]);
     }
   }
 
@@ -432,10 +468,13 @@ export class RegistrationService {
     return {};
   }
 
-  private async queryBalanceOrZero(uid: string, token: string): Promise<VipBalance> {
+  private async queryBalanceOrZero(vipClient: VipClient, uid: string, token: string): Promise<VipBalance> {
     try {
-      return await this.vipClient.queryBalance(uid, token);
-    } catch {
+      return await vipClient.queryBalance(uid, token);
+    } catch (error) {
+      if (error instanceof VipClientError && error.status === 0) {
+        throw error;
+      }
       return { availableBalance: 0, totalBalance: 0 };
     }
   }
@@ -531,15 +570,45 @@ export class RegistrationService {
     return normalizeComparableDomain(pickedDomain) === normalizeComparableDomain(domain) ? domain : undefined;
   }
 
-  /** Resolve exactly one client for the requested channel. */
-  private async resolveYydsClient(mailboxChannel: RegistrationMailChannel): Promise<RegistrationMailClient> {
-    const client = this.yydsClientProvider
-      ? await this.yydsClientProvider(mailboxChannel)
-      : this.yydsClient;
-    if (!client) {
+  /** Resolve exactly one mail client session for the requested channel. */
+  private async resolveYydsClient(
+    mailboxChannel: RegistrationMailChannel,
+    proxySessionId: string
+  ): Promise<RegistrationClientSession<RegistrationMailClient>> {
+    const session = this.yydsClientProvider
+      ? await this.yydsClientProvider(mailboxChannel, proxySessionId)
+      : this.yydsClient
+        ? { client: this.yydsClient }
+        : undefined;
+    if (!session) {
       throw new Error("YYDS Mail API key is not configured");
     }
-    return client;
+    return session;
+  }
+
+  /** Resolve one VIP client session for the full registration pipeline. */
+  private async resolveVipClient(proxySessionId: string): Promise<RegistrationClientSession<VipClient>> {
+    return this.vipClientProvider
+      ? await this.vipClientProvider(proxySessionId)
+      : { client: this.vipClient };
+  }
+}
+
+/** Create a hyphen-free proxy session ID distinct from the optional excluded value. */
+function createProxySessionId(excluded?: string): string {
+  let id: string;
+  do {
+    id = randomUUID().replaceAll("-", "");
+  } while (id === excluded);
+  return id;
+}
+
+/** Dispose a registration client session without changing the business result. */
+async function disposeSession(session: RegistrationClientSession<unknown> | undefined): Promise<void> {
+  try {
+    await session?.dispose?.();
+  } catch {
+    // Connection cleanup is best effort.
   }
 }
 

@@ -25,7 +25,8 @@ describe("MySQL pool wiring", () => {
       "MysqlYydsDomainPoolStore",
       "MysqlImageTaskStore",
       "MysqlVideoTaskStore",
-      "MysqlRuntimeConfigStore"
+      "MysqlRuntimeConfigStore",
+      "MysqlNetworkProxyConfigStore"
     ]) {
       expect(source).toContain(`new ${storeName}(mysqlPool)`);
       expect(source).not.toContain(`new ${storeName}(config.mysql)`);

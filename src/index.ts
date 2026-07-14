@@ -3,6 +3,7 @@ import { Redis } from "ioredis";
 import { loadConfig } from "./config/env.js";
 import { YydsMailClient } from "./protocols/mail/yyds-mail.js";
 import { ZeroConfigMailClient } from "./protocols/mail/zero-config-mail.js";
+import { createProxyFetchSession } from "./protocols/proxy-fetch.js";
 import { VipClient } from "./protocols/vip-client.js";
 import { createApp } from "./server/app.js";
 import { reconcileAccountBalances } from "./services/account-balance-reconciler.js";
@@ -16,6 +17,7 @@ import {
 import { RegistrationService } from "./services/registration-service.js";
 import { createRegistrationWorker } from "./services/registration-worker.js";
 import { RuntimeConfigService } from "./services/runtime-config-service.js";
+import { NetworkProxyConfigService } from "./services/network-proxy-config-service.js";
 import { runtimeConfigDefaultsFromAppConfig } from "./services/runtime-config-schema.js";
 import { normalizeYydsDomainPoolConfig, YydsDomainPool } from "./services/yyds-domain-pool.js";
 import { YydsMailConfigService } from "./services/yyds-mail-config-service.js";
@@ -24,6 +26,7 @@ import { MysqlImageTaskStore } from "./store/image-task-store.js";
 import { MysqlAccountStore } from "./store/mysql-account-store.js";
 import { createMysqlPool } from "./store/mysql-config.js";
 import { MysqlRuntimeConfigStore } from "./store/runtime-config-store.js";
+import { MysqlNetworkProxyConfigStore } from "./store/network-proxy-config-store.js";
 import { MysqlYydsDomainPoolStore } from "./store/yyds-domain-pool-store.js";
 import { MysqlYydsMailConfigStore } from "./store/yyds-mail-config-store.js";
 import { MysqlVideoTaskStore } from "./store/video-task-store.js";
@@ -43,6 +46,7 @@ const yydsDomainPoolStore = new MysqlYydsDomainPoolStore(mysqlPool);
 const imageTaskStore = new MysqlImageTaskStore(mysqlPool);
 const videoTaskStore = new MysqlVideoTaskStore(mysqlPool);
 const runtimeConfigStore = new MysqlRuntimeConfigStore(mysqlPool);
+const networkProxyConfigStore = new MysqlNetworkProxyConfigStore(mysqlPool);
 await accountStore.ensureSchema();
 await yydsMailConfigStore.ensureSchema();
 await yydsDomainPoolStore.ensureSchema();
@@ -52,6 +56,7 @@ if (!(await yydsDomainPoolStore.hasConfig())) {
 await imageTaskStore.ensureSchema();
 await videoTaskStore.ensureSchema();
 await runtimeConfigStore.ensureSchema();
+await networkProxyConfigStore.ensureSchema();
 
 if (config.defaultAccount) {
   await accountStore.upsert(config.defaultAccount);
@@ -72,6 +77,10 @@ const yydsMailConfigService = new YydsMailConfigService(
     normalizeSecretRoot(config.masterApiKey),
     "navos:yyds_mail_config:v1"
   )
+);
+const networkProxyConfigService = new NetworkProxyConfigService(
+  networkProxyConfigStore,
+  normalizeSecretRoot(config.masterApiKey)
 );
 const vipClient = new VipClient({
   baseUrl: config.vipBaseUrl,
@@ -100,15 +109,52 @@ const mailboxLimiter = new RedisRegistrationMailboxLimiter({
 });
 
 const registrationService = new RegistrationService({
-  yydsClientProvider: async (mailboxChannel) => {
-    if (mailboxChannel === "yyds") {
-      const apiKey = await yydsMailConfigService.enabledApiKey();
-      return apiKey ? new YydsMailClient({
-        baseUrl: DEFAULT_YYDS_MAIL_BASE_URL,
-        apiKey
-      }) : undefined;
+  yydsClientProvider: async (mailboxChannel, proxySessionId) => {
+    const proxy = createProxyFetchSession(
+      await networkProxyConfigService.urlTemplate("mailbox"),
+      proxySessionId
+    );
+    try {
+      if (mailboxChannel === "yyds") {
+        const apiKey = await yydsMailConfigService.enabledApiKey();
+        if (!apiKey) {
+          await proxy.dispose();
+          return undefined;
+        }
+        return {
+          client: new YydsMailClient({
+            baseUrl: DEFAULT_YYDS_MAIL_BASE_URL,
+            apiKey,
+            fetchImpl: proxy.fetchImpl
+          }),
+          dispose: proxy.dispose
+        };
+      }
+      return {
+        client: new ZeroConfigMailClient({
+          providers: [mailboxChannel],
+          fetchImpl: proxy.fetchImpl
+        }),
+        dispose: proxy.dispose
+      };
+    } catch (error) {
+      await proxy.dispose();
+      throw error;
     }
-    return new ZeroConfigMailClient({ providers: [mailboxChannel] });
+  },
+  vipClientProvider: async (proxySessionId) => {
+    const proxy = createProxyFetchSession(
+      await networkProxyConfigService.urlTemplate("registration"),
+      proxySessionId
+    );
+    return {
+      client: new VipClient({
+        baseUrl: config.vipBaseUrl,
+        hmacSecret: config.vipHmacSecret,
+        fetchImpl: proxy.fetchImpl
+      }),
+      dispose: proxy.dispose
+    };
   },
   vipClient,
   accountService,
@@ -192,6 +238,8 @@ const app = createApp({
   accountService,
   yydsMailConfigSecret: config.masterApiKey,
   yydsMailConfigStore,
+  networkProxyConfigSecret: config.masterApiKey,
+  networkProxyConfigStore,
   yydsDomainPoolStore,
   imageTaskStore,
   videoTaskStore,

@@ -76,6 +76,11 @@ export interface YydsMailConfig {
   updatedAt?: number;
 }
 
+export interface NetworkProxyConfig {
+  configured: boolean;
+  updatedAt?: number;
+}
+
 export type AccountBalanceReconcileScope = "depleted" | "active" | "non_disabled" | "all";
 
 export type BalanceReconcileScope = AccountBalanceReconcileScope;

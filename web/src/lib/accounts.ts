@@ -21,7 +21,7 @@ export function panelTitle(panel: PanelId): string {
     return "模型列表";
   }
   if (panel === "yydsConfig") {
-    return "YYDS配置";
+    return "邮箱配置";
   }
   if (panel === "video") {
     return "视频生成";
