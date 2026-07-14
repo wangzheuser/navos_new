@@ -17,6 +17,9 @@ export function panelTitle(panel: PanelId): string {
   if (panel === "image") {
     return "图片生成";
   }
+  if (panel === "models") {
+    return "模型列表";
+  }
   if (panel === "yydsConfig") {
     return "YYDS配置";
   }

@@ -6,11 +6,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../web/src/App";
 import { ConsoleShell } from "../web/src/app/ConsoleShell";
 import { RuntimeConfigPanel } from "../web/src/panels/RuntimeConfigPanel";
+import { ModelListPanel } from "../web/src/panels/ModelListPanel";
 import { YydsMailConfigPanel } from "../web/src/panels/YydsMailConfigPanel";
 
 describe("admin app gate", () => {
   afterEach(() => {
     localStorage.clear();
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -97,11 +99,96 @@ describe("admin app gate", () => {
 
     expect(within(primaryNav).getByRole("button", { name: "账号池" })).toBeInTheDocument();
     expect(within(primaryNav).getByRole("button", { name: "聊天" })).toBeInTheDocument();
+    expect(within(primaryNav).getByRole("button", { name: "模型列表" })).toBeInTheDocument();
     expect(within(primaryNav).getByRole("button", { name: "图片生成" })).toBeInTheDocument();
+    const mainMenuNames = within(primaryNav).getAllByRole("button").map((button) => button.textContent?.trim());
+    expect(mainMenuNames.indexOf("模型列表")).toBeLessThan(mainMenuNames.indexOf("图片生成"));
     expect(within(primaryNav).getByRole("button", { name: "视频生成" })).toBeInTheDocument();
     expect(within(primaryNav).queryByRole("button", { name: "YYDS配置" })).not.toBeInTheDocument();
     expect(within(configNav).getByRole("button", { name: "YYDS配置" })).toBeInTheDocument();
     expect(within(configNav).queryByRole("button", { name: /COS/ })).not.toBeInTheDocument();
+  });
+
+  it("lists model capabilities and copies model ids", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({ authorization: "Bearer sk-local" });
+      const path = String(url);
+      if (path === "/api/accounts") return Response.json([]);
+      if (path === "/api/registration/jobs" && init?.method === "GET") return Response.json([]);
+      if (path === "/v1/models" && init?.method === "GET") {
+        return Response.json({
+          data: [
+            {
+              id: "gpt-5.5",
+              capabilities: { input: ["text", "image"], output: ["text"], tools: true }
+            },
+            {
+              id: "gpt-image-2",
+              capabilities: { input: ["text", "image"], output: ["image"], tools: false }
+            },
+            { id: "legacy-model" },
+            { object: "model" }
+          ]
+        });
+      }
+      return Response.json({ error: { message: `unexpected path ${path}` } }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Master API Key"), { target: { value: "sk-local" } });
+    fireEvent.click(screen.getByRole("button", { name: "进入控制台" }));
+    fireEvent.click(await screen.findByRole("button", { name: "模型列表" }));
+
+    expect(await screen.findByRole("heading", { level: 2, name: "模型列表" })).toBeInTheDocument();
+    const gptCapabilities = screen.getByLabelText("gpt-5.5 能力");
+    expect(within(gptCapabilities).getByText("IN · TEXT")).toBeInTheDocument();
+    expect(within(gptCapabilities).getByText("IN · IMAGE")).toBeInTheDocument();
+    expect(within(gptCapabilities).getByText("OUT · TEXT")).toBeInTheDocument();
+    expect(within(gptCapabilities).getByText("TOOLS")).toBeInTheDocument();
+    const legacyCapabilities = screen.getByLabelText("legacy-model 能力");
+    expect(within(legacyCapabilities).getByText("IN · TEXT")).toBeInTheDocument();
+    expect(within(legacyCapabilities).getByText("OUT · TEXT")).toBeInTheDocument();
+    expect(within(legacyCapabilities).queryByText("TOOLS")).not.toBeInTheDocument();
+
+    fireEvent.doubleClick(screen.getByRole("button", { name: "gpt-5.5" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("gpt-5.5"));
+    expect(await screen.findByText("已复制：gpt-5.5")).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "legacy-model" }), { key: "Enter" });
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("legacy-model"));
+
+    writeText.mockRejectedValueOnce(new Error("clipboard denied"));
+    fireEvent.doubleClick(screen.getByRole("button", { name: "gpt-image-2" }));
+    expect(await screen.findByText("clipboard denied")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/v1/models", expect.objectContaining({ method: "GET" }));
+  });
+
+  it("shows an empty model catalog", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ModelListPanel apiKey="sk-local" />);
+
+    expect(await screen.findByText("暂无可用模型")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/v1/models", expect.objectContaining({
+      method: "GET",
+      headers: expect.objectContaining({ authorization: "Bearer sk-local" })
+    }));
+  });
+
+  it("shows model catalog request failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(
+      { error: { message: "catalog unavailable" } },
+      { status: 503 }
+    )));
+
+    render(<ModelListPanel apiKey="sk-local" />);
+
+    expect(await screen.findByText("catalog unavailable")).toBeInTheDocument();
+    expect(screen.getByText("暂无可用模型")).toBeInTheDocument();
   });
 
 
@@ -192,6 +279,10 @@ describe("admin app gate", () => {
           quality: "auto",
           size: "1024x1024"
         });
+        expect(init.headers).toMatchObject({ prefer: "respond-async" });
+        return Response.json({ status: "running", task_id: "img_console_async", data: [] }, { status: 202 });
+      }
+      if (path === "/api/images/generations/img_console_async") {
         return Response.json({ data: [{ b64_json: "aGVsbG8=" }] });
       }
       return Response.json({ error: { message: `unexpected path ${path}` } }, { status: 404 });
@@ -216,6 +307,7 @@ describe("admin app gate", () => {
     const generated = await screen.findByAltText("生成图片 1");
     expect(generated).toHaveAttribute("src", "data:image/png;base64,aGVsbG8=");
     expect(fetchMock).toHaveBeenCalledWith("/api/images/generations", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenCalledWith("/api/images/generations/img_console_async", expect.any(Object));
   });
 
   it("sends reference image URLs from the image workbench", async () => {

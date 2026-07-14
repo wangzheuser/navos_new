@@ -25,6 +25,8 @@ const sizeOptions = [
 ];
 
 const qualityOptions = ["auto", "low", "medium", "high"];
+const IMAGE_POLL_INTERVAL_MS = 4000;
+const IMAGE_POLL_ATTEMPTS = 75;
 
 export function ImagePanel({ apiKey }: { apiKey: string }) {
   const [form, setForm] = useState({
@@ -57,9 +59,14 @@ export function ImagePanel({ apiKey }: { apiKey: string }) {
         ...parseImageReferenceUrls(referenceUrls),
         ...await filesToDataUrls(referenceFiles)
       ].slice(0, 8);
-      const response = await apiRequest<unknown>(apiKey, "/api/images/generations", {
+      const created = await apiRequest<unknown>(apiKey, "/api/images/generations", {
         method: "POST",
+        headers: { prefer: "respond-async" },
         body: JSON.stringify(buildImageGenerationRequest({ ...form, prompt, referenceImages }))
+      });
+      const response = await waitForImageResult(apiKey, created, (taskId) => {
+        setStatus({ kind: "loading", message: `任务 ${taskId} 已创建，正在生成图片` });
+        setResult(created);
       });
       const nextImages = parseImageGenerationResults(response);
       setResult(response);
@@ -247,6 +254,49 @@ export function ImagePanel({ apiKey }: { apiKey: string }) {
       </div>
     </section>
   );
+}
+
+/** 轮询异步图片任务，直到返回图片或达到等待上限。 */
+async function waitForImageResult(
+  apiKey: string,
+  initial: unknown,
+  onCreated: (taskId: string) => void
+): Promise<unknown> {
+  if (parseImageGenerationResults(initial).length > 0) {
+    return initial;
+  }
+  const taskId = imageTaskId(initial);
+  if (!taskId) {
+    return initial;
+  }
+  onCreated(taskId);
+  for (let attempt = 0; attempt < IMAGE_POLL_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) {
+      await delay(IMAGE_POLL_INTERVAL_MS);
+    }
+    const response = await apiRequest<unknown>(apiKey, `/api/images/generations/${encodeURIComponent(taskId)}`);
+    if (parseImageGenerationResults(response).length > 0) {
+      return response;
+    }
+  }
+  throw new Error("图片生成等待超时，请稍后重试");
+}
+
+/** 从图片任务响应中读取任务标识。 */
+function imageTaskId(response: unknown): string | undefined {
+  if (!response || typeof response !== "object") {
+    return undefined;
+  }
+  const record = response as Record<string, unknown>;
+  return typeof record.task_id === "string" && record.task_id
+    ? record.task_id
+    : typeof record.id === "string" && record.id
+      ? record.id
+      : undefined;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function filesToDataUrls(files: UploadFile[]): Promise<string[]> {

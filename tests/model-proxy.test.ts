@@ -1,8 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { forwardModelRequest } from "../src/protocols/model-proxy.js";
+import { forwardModelRequest, modelCapabilities } from "../src/protocols/model-proxy.js";
 import { ProviderHttpClient } from "../src/protocols/http.js";
 
 describe("model proxy", () => {
+  it("describes model capabilities consistently across canonical ids and aliases", () => {
+    expect(modelCapabilities("gpt-5.5")).toEqual({ input: ["text", "image"], output: ["text"], tools: true });
+    expect(modelCapabilities("openai.gpt-5.5")).toEqual(modelCapabilities("gpt-5.5"));
+    expect(modelCapabilities("claude-sonnet-4-6")).toEqual({ input: ["text", "image"], output: ["text"], tools: true });
+    expect(modelCapabilities("sonnet-4.6")).toEqual(modelCapabilities("claude-sonnet-4-6"));
+    expect(modelCapabilities("deepseek-v4-pro")).toEqual({ input: ["text"], output: ["text"], tools: true });
+    expect(modelCapabilities("gpt-image-2")).toEqual({ input: ["text", "image"], output: ["image"], tools: false });
+    expect(modelCapabilities("navos/doubao-seedance-2-0-260128")).toEqual({
+      input: ["text", "image", "video"],
+      output: ["video"],
+      tools: false
+    });
+    expect(modelCapabilities("future-model")).toEqual({ input: ["text"], output: ["text"], tools: false });
+  });
+
   it("routes Claude chat completions through Anthropic messages and wraps the response", async () => {
     let capturedUrl = "";
     let capturedBody: Record<string, unknown> = {};

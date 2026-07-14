@@ -22,6 +22,7 @@ import {
   isPublicProxyMessagesModelAllowed,
   isPublicProxyResponsesModelAllowed,
   LOCAL_MODEL_IDS,
+  modelCapabilities,
   normalizePublicProxyModelId,
   PUBLIC_PROXY_MODEL_IDS
 } from "../protocols/model-proxy.js";
@@ -225,6 +226,13 @@ function bodyRecord(request: FastifyRequest): Record<string, unknown> {
   return request.body && typeof request.body === "object"
     ? request.body as Record<string, unknown>
     : {};
+}
+
+/** 判断客户端是否要求异步返回任务标识。 */
+function prefersAsyncResponse(request: FastifyRequest): boolean {
+  return (headerString(request.headers.prefer) ?? "")
+    .split(",")
+    .some((item) => item.trim().toLowerCase() === "respond-async");
 }
 
 function requestAbortSignal(request: FastifyRequest, reply: FastifyReply): AbortSignal {
@@ -508,7 +516,8 @@ function localModelCatalog() {
     data: LOCAL_MODEL_IDS.map((id) => ({
       id,
       object: "model",
-      owned_by: "navos"
+      owned_by: "navos",
+      capabilities: modelCapabilities(id)
     }))
   };
 }
@@ -519,7 +528,8 @@ function publicModelCatalog() {
     data: PUBLIC_PROXY_MODEL_IDS.map((id) => ({
       id,
       object: "model",
-      owned_by: "navos"
+      owned_by: "navos",
+      capabilities: modelCapabilities(id)
     }))
   };
 }
@@ -1288,10 +1298,12 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
   async function leaseImageAccountOrRegister(
     leaseId: string,
     reply: FastifyReply,
-    sendUnavailable: boolean = true
+    sendUnavailable: boolean = true,
+    waitOverrideMs?: number
   ): Promise<AccountRecord | undefined> {
     const runtimeConfig = await runtimeConfigService.get();
-    const waitMs = sendUnavailable ? Math.max(0, runtimeConfig.imageAccountWaitMs ?? DEFAULT_IMAGE_ACCOUNT_WAIT_MS) : 0;
+    const configuredWaitMs = Math.max(0, runtimeConfig.imageAccountWaitMs ?? DEFAULT_IMAGE_ACCOUNT_WAIT_MS);
+    const waitMs = sendUnavailable ? Math.max(0, waitOverrideMs ?? configuredWaitMs) : 0;
     const deadline = Date.now() + waitMs;
     let attemptedRegistration = false;
     do {
@@ -2240,13 +2252,14 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
     }
 
     const pollPath = imageTaskPollPathForPayload(payload);
+    const respondAsync = prefersAsyncResponse(request);
     const runtimeConfig = await runtimeConfigService.get();
     imageGenerationGate.setMaxInFlight(runtimeConfig.imageMaxInFlight);
     let lastResult: ProviderResult | undefined;
     let lastDecision: ProviderFailureDecision | undefined;
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const leaseId = `image:${randomUUID()}`;
-      const account = await leaseImageAccountOrRegister(leaseId, reply, !lastResult);
+      const account = await leaseImageAccountOrRegister(leaseId, reply, !lastResult, respondAsync ? 0 : undefined);
       if (!account) {
         if (lastResult) {
           await sendProviderResult(reply, exhaustedAccountRetryFailureResult(lastResult, lastDecision));
@@ -2261,7 +2274,8 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
         result = await createImageGeneration(client, payload, headers, {
           maxAttempts: imageMaxPollAttemptsForRuntimeConfig(runtimeConfig),
           intervalMs: runtimeConfig.imagePollIntervalMs,
-          outputMode: defaultResponseFormat === "b64_json" ? "display" : undefined
+          outputMode: defaultResponseFormat === "b64_json" ? "display" : undefined,
+          deferPolling: respondAsync
         });
       } catch (error) {
         imageGateRelease();
@@ -2297,6 +2311,9 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
       if (result.status === 202) {
         releaseImageGate(imageGateReleaseDelay(result, lastDecision));
         await saveImageTaskFromResult(result, pollPath, account.uid, leaseId);
+        if (respondAsync) {
+          reply.header("preference-applied", "respond-async");
+        }
         await sendProviderResult(reply, result);
         return;
       }

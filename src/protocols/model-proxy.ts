@@ -11,6 +11,14 @@ export interface ModelProxyRequest {
   signal?: AbortSignal;
 }
 
+export type ModelModality = "text" | "image" | "video" | "file";
+
+export interface ModelCapabilities {
+  input: ModelModality[];
+  output: ModelModality[];
+  tools: boolean;
+}
+
 const ALLOWED_PATHS = new Set([
   "/v1/models",
   "/v1/chat/completions",
@@ -154,6 +162,38 @@ export const LOCAL_MODEL_IDS = [
   "navos/doubao-seedance-2-0-260128",
   "doubao-seedance-2-0-260128"
 ];
+
+/** Return the capabilities exposed by this adapter for a model id or alias. */
+export function modelCapabilities(model: string): ModelCapabilities {
+  const normalized = model.trim().toLowerCase();
+  const shortName = normalized.split("/").at(-1) ?? normalized;
+  if (shortName === "gpt-image-2") {
+    return { input: ["text", "image"], output: ["image"], tools: false };
+  }
+  if (shortName.includes("seedance")) {
+    return { input: ["text", "image", "video"], output: ["video"], tools: false };
+  }
+  if (isClaudeCatalogModel(shortName)) {
+    return { input: ["text", "image"], output: ["text"], tools: true };
+  }
+
+  const resolved = resolveOpenAiModel(shortName);
+  if (resolved?.startsWith("openai.")) {
+    return { input: ["text", "image"], output: ["text"], tools: true };
+  }
+  if (resolved) {
+    return { input: ["text"], output: ["text"], tools: true };
+  }
+  return { input: ["text"], output: ["text"], tools: false };
+}
+
+/** Determine whether a catalog id routes to the Claude protocol family. */
+function isClaudeCatalogModel(model: string): boolean {
+  return CLAUDE_MODEL_IDS.includes(model)
+    || model.startsWith("claude.")
+    || model.startsWith("claude-")
+    || PUBLIC_PROXY_MODEL_ALIASES[model] !== undefined;
+}
 
 export function isPublicProxyChatModelAllowed(model: string | undefined): boolean {
   return Boolean(model && PUBLIC_PROXY_CHAT_MODEL_ID_SET.has(model));

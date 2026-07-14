@@ -877,7 +877,10 @@ describe("server routes", () => {
     expect(response.json()).toMatchObject({
       object: "list",
       data: expect.arrayContaining([
-        expect.objectContaining({ id: "gpt-5.5" }),
+        expect.objectContaining({
+          id: "gpt-5.5",
+          capabilities: { input: ["text", "image"], output: ["text"], tools: true }
+        }),
         expect.objectContaining({ id: "openai.gpt-5.5" }),
         expect.objectContaining({ id: "ospu-4.8" }),
         expect.objectContaining({ id: "ospu-4.6" }),
@@ -907,6 +910,11 @@ describe("server routes", () => {
     expect(ids).toContain("gpt-image-2");
     expect(ids).toContain("navos/doubao-seedance-2-0-260128");
     expect(ids).toContain("doubao-seedance-2-0-260128");
+    expect(response.json().data.find((item: { id: string }) => item.id === "gpt-image-2").capabilities).toEqual({
+      input: ["text", "image"],
+      output: ["image"],
+      tools: false
+    });
   });
 
   it("lets public proxy keys access only the public model catalog and not admin routes", async () => {
@@ -941,6 +949,11 @@ describe("server routes", () => {
     ]);
     expect(ids).not.toContain("claude.opus-4.8");
     expect(ids).not.toContain("qwen.qwen3.6-plus");
+    expect(models.json().data.find((item: { id: string }) => item.id === "claude-sonnet-4-6").capabilities).toEqual({
+      input: ["text", "image"],
+      output: ["text"],
+      tools: true
+    });
 
     const admin = await app.inject({
       method: "GET",
@@ -2020,6 +2033,57 @@ describe("server routes", () => {
       task_id: "img_async_1",
       data: [{ url: "https://cdn.test/async.png" }]
     });
+    expect(await store.get("u1")).toMatchObject({ balanceRemaining: 100, leaseUntil: 0 });
+  });
+
+  it("returns preferred async image tasks before polling upstream", async () => {
+    const store = new InMemoryAccountStore();
+    await store.upsert({ uid: "u1", token: "t1", balanceRemaining: 200, balanceTotal: 200 });
+    let pollCount = 0;
+    const app = createApp({
+      masterApiKey: "sk-test",
+      providerBaseUrl: "https://upstream.test",
+      providerAuthMode: "uid-token",
+      accountService: new AccountService(store),
+      fetchImpl: async (url) => {
+        const path = new URL(String(url)).pathname;
+        if (path === "/api/tasks/navos-gpt-image-t2i") {
+          return Response.json({ code: 200, data: { task_id: "img_preferred_async", status: "queued" } });
+        }
+        if (path === "/api/tasks/image/generations/img_preferred_async") {
+          pollCount += 1;
+          return Response.json({ code: 200, data: { status: "succeeded", url: "https://cdn.test/preferred-async.png" } });
+        }
+        return Response.json({ error: { message: `unexpected path ${path}` } }, { status: 404 });
+      }
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/images/generations",
+      headers: { authorization: "Bearer sk-test", prefer: "respond-async" },
+      payload: { prompt: "cloudflare-safe image" }
+    });
+
+    expect(created.statusCode).toBe(202);
+    expect(created.headers["preference-applied"]).toBe("respond-async");
+    expect(created.json()).toMatchObject({ status: "running", task_id: "img_preferred_async", data: [] });
+    expect(pollCount).toBe(0);
+    expect((await store.get("u1"))?.leaseUntil).toBeGreaterThan(Date.now());
+
+    const completed = await app.inject({
+      method: "GET",
+      url: "/api/images/generations/img_preferred_async",
+      headers: { authorization: "Bearer sk-test" }
+    });
+
+    expect(completed.statusCode).toBe(200);
+    expect(completed.json()).toMatchObject({
+      status: "succeeded",
+      task_id: "img_preferred_async",
+      data: [{ url: "https://cdn.test/preferred-async.png" }]
+    });
+    expect(pollCount).toBe(1);
     expect(await store.get("u1")).toMatchObject({ balanceRemaining: 100, leaseUntil: 0 });
   });
 

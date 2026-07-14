@@ -3,6 +3,7 @@ import { Button as AntButton } from "antd";
 import {
   Activity,
   Bot,
+  Boxes,
   Clapperboard,
   ImageIcon,
   Inbox,
@@ -18,6 +19,7 @@ import { accountMetrics, panelTitle } from "../lib/accounts";
 import { AccountsPanel } from "../panels/AccountsPanel";
 import { ChatPanel } from "../panels/ChatPanel";
 import { ImagePanel } from "../panels/ImagePanel";
+import { ModelListPanel } from "../panels/ModelListPanel";
 import { ProbePanel } from "../panels/ProbePanel";
 import { RuntimeConfigPanel } from "../panels/RuntimeConfigPanel";
 import { VideoPanel } from "../panels/VideoPanel";
@@ -60,6 +62,9 @@ export function ConsoleShell({
             </NavButton>
             <NavButton active={activePanel === "chat"} icon={<Bot size={17} />} onClick={() => onPanelChange("chat")}>
               聊天
+            </NavButton>
+            <NavButton active={activePanel === "models"} icon={<Boxes size={17} />} onClick={() => onPanelChange("models")}>
+              模型列表
             </NavButton>
             <NavButton active={activePanel === "image"} icon={<ImageIcon size={17} />} onClick={() => onPanelChange("image")}>
               图片生成
@@ -112,6 +117,7 @@ export function ConsoleShell({
           />
         )}
         {activePanel === "chat" && <ChatPanel apiKey={apiKey} />}
+        {activePanel === "models" && <ModelListPanel apiKey={apiKey} />}
         {activePanel === "image" && <ImagePanel apiKey={apiKey} />}
         {activePanel === "runtimeConfig" && <RuntimeConfigPanel apiKey={apiKey} />}
         {activePanel === "yydsConfig" && <YydsMailConfigPanel apiKey={apiKey} />}

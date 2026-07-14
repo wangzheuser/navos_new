@@ -50,7 +50,22 @@ export interface RegistrationJobView {
   finishedAt?: number;
 }
 
-export type PanelId = "accounts" | "chat" | "image" | "probe" | "video" | "yydsConfig" | "runtimeConfig";
+export type PanelId = "accounts" | "chat" | "models" | "image" | "probe" | "video" | "yydsConfig" | "runtimeConfig";
+
+export type ModelModality = "text" | "image" | "video" | "file";
+
+export interface ModelCapabilities {
+  input: ModelModality[];
+  output: ModelModality[];
+  tools: boolean;
+}
+
+export interface ModelListItem {
+  id: string;
+  object?: string;
+  owned_by?: string;
+  capabilities?: ModelCapabilities;
+}
 
 export interface YydsMailConfig {
   id?: number;

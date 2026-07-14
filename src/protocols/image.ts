@@ -14,6 +14,7 @@ export interface ImageGenerationPollOptions {
   maxAttempts?: number;
   intervalMs?: number;
   outputMode?: ImageResponseFormat | "display";
+  deferPolling?: boolean;
 }
 
 const DEFAULT_IMAGE_MODEL = "gpt-image-2";
@@ -204,6 +205,10 @@ async function pollCreatedImageTask(
     };
   }
 
+  if (options.deferPolling) {
+    return runningImageTaskResult(created, taskId, responseFormat);
+  }
+
   const maxAttempts = options.maxAttempts ?? DEFAULT_IMAGE_POLL_ATTEMPTS;
   const intervalMs = options.intervalMs ?? DEFAULT_IMAGE_POLL_INTERVAL_MS;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -216,6 +221,15 @@ async function pollCreatedImageTask(
     }
   }
 
+  return runningImageTaskResult(created, taskId, responseFormat);
+}
+
+/** 构造统一的异步图片任务响应。 */
+function runningImageTaskResult(
+  created: ProviderResult,
+  taskId: string,
+  responseFormat: ImageResponseFormat | "display"
+): ProviderResult {
   return {
     ...created,
     status: 202,
