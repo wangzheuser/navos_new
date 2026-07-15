@@ -42,16 +42,21 @@ export function TextField({
   );
 }
 
+/** 渲染项目统一样式的字符串下拉选择框。 */
 export function SelectField({
+  disabled = false,
   label,
+  loading = false,
   onChange,
   options,
   value
 }: {
+  disabled?: boolean;
   label: string;
+  loading?: boolean;
   onChange: (value: string) => void;
   options: string[];
-  value: string;
+  value?: string;
 }) {
   return (
     <label className="text-field ant-field">
@@ -59,6 +64,8 @@ export function SelectField({
       <Select
         aria-label={label}
         className="navos-select"
+        disabled={disabled}
+        loading={loading}
         options={options.map((option) => ({ label: option, value: option }))}
         popupMatchSelectWidth={false}
         value={value}

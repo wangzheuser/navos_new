@@ -207,6 +207,22 @@ a.button {
   box-shadow: 0 0 0 3px rgba(47, 111, 235, 0.14) !important;
 }
 
+.capability-model-field {
+  display: grid;
+  gap: 5px;
+}
+
+.capability-model-message {
+  min-height: 16px;
+  color: var(--amber);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.capability-model-message.loading {
+  color: var(--muted);
+}
+
 .textarea-field .ant-input {
   min-height: 190px;
   resize: vertical;
@@ -934,6 +950,28 @@ a.button {
   padding: 4px 9px;
 }
 
+.clipboard-image-paste {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px dashed rgba(37, 99, 235, 0.38);
+  border-radius: 12px;
+  background: rgba(239, 246, 255, 0.7);
+  color: #31599a;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: text;
+  outline: none;
+}
+
+.clipboard-image-paste:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(47, 111, 235, 0.14);
+}
+
 .reference-file-empty {
   color: #8a96aa;
   font-size: 12px;
@@ -1084,6 +1122,12 @@ a.button {
   gap: 8px;
   min-width: 0;
   margin: 0;
+}
+
+.image-result-tile .ant-image {
+  display: block;
+  width: 100%;
+  cursor: zoom-in;
 }
 
 .image-result-tile img {

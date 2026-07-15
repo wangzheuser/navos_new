@@ -3,14 +3,8 @@ import { Tag } from "antd";
 import { apiRequest, errorMessage } from "../api";
 import { idleStatus } from "../app/defaults";
 import { StatusLine } from "../components/feedback";
-import type { ModelCapabilities, ModelListItem, ModelModality, StatusState } from "../types";
-
-const DEFAULT_CAPABILITIES: ModelCapabilities = {
-  input: ["text"],
-  output: ["text"],
-  tools: false
-};
-const MODALITIES: ModelModality[] = ["text", "image", "video", "file"];
+import { DEFAULT_MODEL_CAPABILITIES, normalizeModelList } from "../lib/model-catalog";
+import type { ModelListItem, StatusState } from "../types";
 
 /** Display the models available to the current administrator. */
 export function ModelListPanel({ apiKey }: { apiKey: string }) {
@@ -58,7 +52,7 @@ export function ModelListPanel({ apiKey }: { apiKey: string }) {
       {models.length > 0 ? (
         <ul className="model-list" aria-label="可用模型">
           {models.map((model) => {
-            const capabilities = model.capabilities ?? DEFAULT_CAPABILITIES;
+            const capabilities = model.capabilities ?? DEFAULT_MODEL_CAPABILITIES;
             return (
               <li className="model-list-item" key={model.id}>
                 <button
@@ -93,46 +87,4 @@ export function ModelListPanel({ apiKey }: { apiKey: string }) {
       )}
     </section>
   );
-}
-
-/** Normalize the model catalog at the API boundary. */
-function normalizeModelList(value: unknown): ModelListItem[] {
-  if (!value || typeof value !== "object" || !Array.isArray((value as { data?: unknown }).data)) {
-    return [];
-  }
-  return (value as { data: unknown[] }).data
-    .map(normalizeModel)
-    .filter((model): model is ModelListItem => model !== undefined);
-}
-
-/** Normalize one model while preserving only known capabilities. */
-function normalizeModel(value: unknown): ModelListItem | undefined {
-  if (!value || typeof value !== "object" || typeof (value as { id?: unknown }).id !== "string") {
-    return undefined;
-  }
-  const record = value as Record<string, unknown>;
-  const id = (record.id as string).trim();
-  if (!id) return undefined;
-  const rawCapabilities = record.capabilities && typeof record.capabilities === "object"
-    ? record.capabilities as Record<string, unknown>
-    : undefined;
-  const input = normalizeModalities(rawCapabilities?.input);
-  const output = normalizeModalities(rawCapabilities?.output);
-  return {
-    id,
-    capabilities: rawCapabilities
-      ? {
-          input: input.length > 0 ? input : ["text"],
-          output: output.length > 0 ? output : ["text"],
-          tools: rawCapabilities.tools === true
-        }
-      : undefined
-  };
-}
-
-/** Keep only supported modality names from an untrusted response. */
-function normalizeModalities(value: unknown): ModelModality[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is ModelModality => typeof item === "string" && MODALITIES.includes(item as ModelModality))
-    : [];
 }

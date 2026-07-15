@@ -26,6 +26,12 @@ interface MediaReference {
   role: string;
 }
 
+interface VideoReferences {
+  images: MediaReference[];
+  videos: MediaReference[];
+  audioRefs: MediaReference[];
+}
+
 const SEEDANCE_2_MODEL = "navos/doubao-seedance-2-0-260128";
 const SEEDANCE_2_ALIASES = new Set([
   "seedance-2.0",
@@ -53,6 +59,9 @@ export function assertVideoGenerationRules(payload: Record<string, unknown>): vo
   if (duration !== undefined && duration > limit) {
     throw new Error(`${resolution} 最长只能生成 ${limit} 秒`);
   }
+
+  const sourceMetadata = isRecord(payload.metadata) ? payload.metadata : {};
+  assertVideoReferenceCombination(collectVideoReferences(payload, sourceMetadata));
 }
 
 function normalizeResolution(value: unknown): VideoResolution {
@@ -153,35 +162,9 @@ export function normalizeSeedanceVideoPayload(body: Record<string, unknown>): Re
     "16:9"
   )).replace("x", ":");
   const resolution = String(firstDefined(body.resolution, sourceMetadata.resolution, "720P")).toUpperCase();
-  const images = collectImageReferences(body, sourceMetadata);
-  const videos = collectMediaReferences(
-    [
-      body.videos,
-      body.video_urls,
-      body.video_url,
-      body.reference_videos,
-      sourceMetadata.reference_videos
-    ],
-    body.videoRoles,
-    body.video_roles,
-    "reference_video",
-    3
-  );
-  const audioRefs = collectMediaReferences(
-    [
-      body.audioRef,
-      body.audio_url,
-      body.audio_urls,
-      body.audio_refs,
-      body.audioRefs,
-      body.reference_audios,
-      sourceMetadata.reference_audios
-    ],
-    body.audioRoles,
-    body.audio_roles,
-    "reference_audio",
-    3
-  );
+  const references = collectVideoReferences(body, sourceMetadata);
+  assertVideoReferenceCombination(references);
+  const { images, videos, audioRefs } = references;
 
   const explicitAudio = firstDefined(
     body.audio,
@@ -229,16 +212,26 @@ export function normalizeSeedanceVideoPayload(body: Record<string, unknown>): Re
     metadata
   };
 
-  copyIfPresent(payload, body, "mode");
-  copyIfPresent(payload, body, "generation_mode");
+  // 旧客户端可能为首帧任务错误附带全能参考模式，转发前必须移除冲突字段。
+  if (frameImages.length === 0) {
+    copyIfPresent(payload, body, "mode");
+    copyIfPresent(payload, body, "generation_mode");
+  }
   if (referenceImages.length > 0) {
     payload.image_urls = referenceImages;
   }
   if (frameImages.length > 0) {
-    payload.image_with_roles = frameImages.map((image) => ({
-      url: image.source,
-      role: image.role
-    }));
+    // 上游只有 image 字段会进入 reference_to_video；image_with_roles 会退化为 text_image_to_video。
+    const firstFrame = frameImages.find((image) => isFirstFrameRole(image.role));
+    if (firstFrame) {
+      payload.image = firstFrame.source;
+      payload.imageRoles = [firstFrame.role];
+    }
+    const lastFrame = frameImages.find((image) => isLastFrameRole(image.role));
+    if (lastFrame) {
+      payload.last_frame_image = lastFrame.source;
+      payload.image_tail_url = lastFrame.source;
+    }
   }
   if (videos.length > 0) {
     payload.video_urls = videos.map((video) => video.source);
@@ -259,6 +252,55 @@ export function normalizeSeedanceVideoPayload(body: Record<string, unknown>): Re
   copyIfPresent(payload, body, "n");
 
   return omitNil(payload);
+}
+
+/** 统一收集所有兼容请求格式中的视频参考素材。 */
+function collectVideoReferences(
+  body: Record<string, unknown>,
+  sourceMetadata: Record<string, unknown>
+): VideoReferences {
+  return {
+    images: collectImageReferences(body, sourceMetadata),
+    videos: collectMediaReferences(
+      [
+        body.videos,
+        body.video_urls,
+        body.video_url,
+        body.reference_videos,
+        sourceMetadata.reference_videos
+      ],
+      body.videoRoles,
+      body.video_roles,
+      "reference_video",
+      3
+    ),
+    audioRefs: collectMediaReferences(
+      [
+        body.audioRef,
+        body.audio_url,
+        body.audio_urls,
+        body.audio_refs,
+        body.audioRefs,
+        body.reference_audios,
+        sourceMetadata.reference_audios
+      ],
+      body.audioRoles,
+      body.audio_roles,
+      "reference_audio",
+      3
+    )
+  };
+}
+
+/** 阻止上游不支持的帧参考与全能参考混合请求。 */
+function assertVideoReferenceCombination(references: VideoReferences): void {
+  const hasFrameImages = references.images.some((image) => isFrameRole(image.role));
+  const hasOmniReferences = references.images.some((image) => !isFrameRole(image.role))
+    || references.videos.length > 0
+    || references.audioRefs.length > 0;
+  if (hasFrameImages && hasOmniReferences) {
+    throw new Error("首帧/尾帧不能与全能参考图片、视频或音频混用");
+  }
 }
 
 export async function prepareVideoTaskPayload(
@@ -331,22 +373,6 @@ async function uploadVideoPayloadLocalAssets(
   await uploadList("audioRef", "audio/mpeg");
   await uploadList("audioRefs", "audio/mpeg");
   await uploadList("image_urls", "image/png");
-  const roleImages = result.image_with_roles;
-  if (Array.isArray(roleImages)) {
-    result.image_with_roles = await Promise.all(roleImages.map(async (item) => {
-      if (!isRecord(item)) {
-        return item;
-      }
-      const source = readStringValue(firstDefined(item.url, item.image_url, item.source, item.src));
-      if (!source) {
-        return item;
-      }
-      return {
-        ...item,
-        url: await uploadOne(source, "image/png")
-      };
-    }));
-  }
   await uploadList("video_urls", "video/mp4");
   await uploadList("audio_urls", "audio/mpeg");
 

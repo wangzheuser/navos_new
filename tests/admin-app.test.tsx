@@ -306,6 +306,11 @@ describe("admin app gate", () => {
 
     const generated = await screen.findByAltText("生成图片 1");
     expect(generated).toHaveAttribute("src", "data:image/png;base64,aGVsbG8=");
+    fireEvent.click(generated);
+    await waitFor(() => expect(screen.getAllByAltText("生成图片 1")).toHaveLength(2));
+    const preview = screen.getAllByAltText("生成图片 1")[1];
+    expect(preview).toHaveClass("ant-image-preview-img");
+    expect(preview.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }))).toBe(true);
     expect(fetchMock).toHaveBeenCalledWith("/api/images/generations", expect.objectContaining({ method: "POST" }));
     expect(fetchMock).toHaveBeenCalledWith("/api/images/generations/img_console_async", expect.any(Object));
   });
@@ -337,13 +342,19 @@ describe("admin app gate", () => {
     fireEvent.change(screen.getByLabelText("参考图 URL，每行一个"), {
       target: { value: "https://assets.test/ref-a.png\nhttps://assets.test/ref-b.png" }
     });
+    fireEvent.paste(screen.getByLabelText("粘贴参考图"), {
+      clipboardData: clipboardWithImage(new File(["clipboard-image"], "clipboard.png", { type: "image/png" }))
+    });
+    expect(screen.getByText("clipboard.png")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "开始生成" }));
 
     await screen.findByAltText("生成图片 1");
-    expect(imagePayload).toMatchObject({
-      prompt: "保持人物姿态，改成赛博朋克风格",
-      images: ["https://assets.test/ref-a.png", "https://assets.test/ref-b.png"]
-    });
+    expect(imagePayload?.prompt).toBe("保持人物姿态，改成赛博朋克风格");
+    expect(imagePayload?.images).toEqual([
+      "https://assets.test/ref-a.png",
+      "https://assets.test/ref-b.png",
+      expect.stringMatching(/^data:image\/png;base64,/)
+    ]);
   });
 
   it("sends chat messages with the selected model from the console", async () => {
@@ -537,6 +548,9 @@ describe("admin app gate", () => {
         return Response.json([]);
       }
       if (path === "/api/video/generations") {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          negative_prompt: "人物变形，防晒面罩改变"
+        });
         return Response.json({
           code: 200,
           data: { task_id: "task_1", status: "deducted" }
@@ -565,6 +579,10 @@ describe("admin app gate", () => {
     fireEvent.change(screen.getByLabelText("任务描述"), {
       target: { value: "原创极简动画短片：白色机器人在桌面挥手。" }
     });
+    expect(screen.getByLabelText("负面提示词（可选）")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("负面提示词（可选）"), {
+      target: { value: "人物变形，防晒面罩改变" }
+    });
     fireEvent.click(screen.getByRole("button", { name: "创建视频任务" }));
 
     await waitFor(() => {
@@ -590,14 +608,17 @@ describe("admin app gate", () => {
         expect(payload).toMatchObject({
           mode: "omni_reference",
           generation_mode: "omni_reference",
-          images: ["https://assets.test/ref.png"],
-          imageRoles: ["reference_image"],
           videos: ["https://assets.test/motion.mp4"],
           videoRoles: ["reference_video"],
           audioRefs: ["https://assets.test/music.mp3"],
           audioRoles: ["reference_audio"],
           audio: true
         });
+        expect(payload.images).toEqual([
+          "https://assets.test/ref.png",
+          expect.stringMatching(/^data:image\/png;base64,/)
+        ]);
+        expect(payload.imageRoles).toEqual(["reference_image", "reference_image"]);
         expect(payload.prompt).toContain("keep the same character");
         return Response.json({
           code: 200,
@@ -630,6 +651,10 @@ describe("admin app gate", () => {
     fireEvent.change(screen.getByLabelText("图片参考 URL（每行一个）"), {
       target: { value: "https://assets.test/ref.png" }
     });
+    fireEvent.paste(screen.getByLabelText("粘贴图片参考"), {
+      clipboardData: clipboardWithImage(new File(["video-clipboard-image"], "video-clipboard.png", { type: "image/png" }))
+    });
+    expect(screen.getByText("video-clipboard.png")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("视频参考 URL（每行一个）"), {
       target: { value: "https://assets.test/motion.mp4" }
     });
@@ -1436,6 +1461,13 @@ describe("admin app gate", () => {
     expect(domainLoads).toBeGreaterThanOrEqual(2);
   });
 });
+
+/** 构造浏览器粘贴事件所需的图片剪切板数据。 */
+function clipboardWithImage(file: File) {
+  return {
+    items: [{ kind: "file", type: file.type, getAsFile: () => file }]
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

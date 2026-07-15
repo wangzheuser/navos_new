@@ -135,7 +135,7 @@ failed
 unknown
 ```
 
-## Image Reference Example
+## Strict First-Frame Example
 
 ```bash
 curl -X POST "$BASE_URL/v1/video/generations" \
@@ -143,20 +143,12 @@ curl -X POST "$BASE_URL/v1/video/generations" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "seedance-2.0",
-    "prompt": "Animate the character walking through a neon street.",
+    "prompt": "Keep the opening composition and animate the character walking through a neon street.",
     "resolution": "720P",
     "durationSeconds": 10,
     "aspectRatio": "9:16",
-    "mode": "omni_reference",
-    "generation_mode": "omni_reference",
-    "images": [
-      "https://assets.example.com/character.png",
-      "https://assets.example.com/style.png"
-    ],
-    "imageRoles": [
-      "first_frame",
-      "reference_image"
-    ]
+    "images": ["https://assets.example.com/character.png"],
+    "imageRoles": ["first_frame"]
   }'
 ```
 
@@ -166,6 +158,8 @@ Image limits:
 images: up to 9
 roles: reference_image, first_frame, last_frame
 ```
+
+Strict `first_frame` / `last_frame` generation and omni-reference generation are mutually exclusive. Do not send `mode` or `generation_mode` for strict frame tasks, and do not mix frame roles with reference images, videos, or audios.
 
 ## Omni Reference Example
 

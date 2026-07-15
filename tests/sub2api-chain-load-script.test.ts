@@ -129,7 +129,8 @@ describe("sub2api chain load script", () => {
     expect(source).toContain('resolution: videoResolution');
     expect(source).toContain('durationSeconds: videoDurationSeconds');
     expect(source).toContain('aspectRatio: videoAspectRatio');
-    expect(source).toContain('generation_mode: "omni_reference"');
+    expect(source).toContain('imageRoles: ["first_frame"]');
+    expect(source).not.toContain('generation_mode: "omni_reference"');
     expect(source).toContain('size: imageSize');
     expect(wrapper).toContain("[string]$Scenarios");
     expect(wrapper).toContain('[string]$VideoResolution = "480P"');

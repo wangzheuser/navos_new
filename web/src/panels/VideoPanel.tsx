@@ -3,8 +3,10 @@ import { Alert, Button as AntButton, Card, Input, InputNumber, Modal, Progress, 
 import type { UploadFile } from "antd/es/upload/interface";
 import { Clapperboard, ExternalLink, FileText, Film, ImageIcon, Link2, Music2, RefreshCw, UploadCloud } from "lucide-react";
 import { apiRequest, errorMessage } from "../api";
+import { CapabilityModelField } from "../components/capability-model-field";
+import { ClipboardImagePaste } from "../components/clipboard-image-paste";
 import { JsonBlock, StatusLine } from "../components/feedback";
-import { SelectField, TextField } from "../components/fields";
+import { SelectField, TextAreaField } from "../components/fields";
 import { idleStatus } from "../app/defaults";
 import {
   buildVideoGenerationPayload,
@@ -17,12 +19,16 @@ import {
   videoDurationLimit,
   videoDurationLimits
 } from "../lib/video-task";
+import { useCapabilityModels } from "../lib/use-capability-models";
 import type { StatusState, VideoTaskView } from "../types";
+
+const VIDEO_DEFAULT_MODEL = "navos/doubao-seedance-2-0-260128";
 
 export function VideoPanel({ apiKey }: { apiKey: string }) {
   const [form, setForm] = useState({
-    model: "navos/doubao-seedance-2-0-260128",
+    model: VIDEO_DEFAULT_MODEL,
     prompt: "",
+    negativePrompt: "",
     resolution: "720P",
     aspectRatio: "1:1",
     durationSeconds: 5,
@@ -42,6 +48,7 @@ export function VideoPanel({ apiKey }: { apiKey: string }) {
   const [imageFiles, setImageFiles] = useState<UploadFile[]>([]);
   const [videoFiles, setVideoFiles] = useState<UploadFile[]>([]);
   const [audioFiles, setAudioFiles] = useState<UploadFile[]>([]);
+  const videoModels = useCapabilityModels(apiKey, "video", VIDEO_DEFAULT_MODEL);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const previewUrl = task?.videoUrl;
   const durationLimit = videoDurationLimit(form.resolution);
@@ -50,6 +57,14 @@ export function VideoPanel({ apiKey }: { apiKey: string }) {
   const audioRefCount = Math.min(3, countUrlLines(referenceUrls.audios) + audioFiles.length);
 
   useEffect(() => () => clearPolling(), []);
+
+  useEffect(() => {
+    if (videoModels.loading) return;
+    setForm((current) => {
+      const model = videoModels.modelIds.includes(current.model) ? current.model : videoModels.modelIds[0] ?? "";
+      return model === current.model ? current : { ...current, model };
+    });
+  }, [videoModels.loading, videoModels.modelIds]);
 
   function clearPolling() {
     if (pollTimer.current) {
@@ -66,6 +81,10 @@ export function VideoPanel({ apiKey }: { apiKey: string }) {
   async function createTask(event: FormEvent) {
     event.preventDefault();
     clearPolling();
+    if (!form.model) {
+      setStatus({ kind: "error", message: "当前没有支持该功能的模型" });
+      return;
+    }
     const prompt = form.prompt.trim();
     if (!prompt) {
       setStatus({ kind: "error", message: "任务描述不能为空" });
@@ -252,7 +271,7 @@ export function VideoPanel({ apiKey }: { apiKey: string }) {
               <Input.TextArea
                 aria-label="长文本任务描述"
                 className="prompt-editor-area"
-                placeholder="把完整脚本、镜头描述、风格要求、负面要求都粘在这里；提交时会原样作为 prompt 发送。"
+                placeholder="把完整脚本、镜头描述和风格要求粘在这里；提交时会原样作为 prompt 发送。"
                 rows={14}
                 value={form.prompt}
                 onChange={(event) => setForm((current) => ({ ...current, prompt: event.target.value }))}
@@ -263,7 +282,19 @@ export function VideoPanel({ apiKey }: { apiKey: string }) {
               <span>支持多段长文本；图片 / 视频 / 音频参考继续放下面素材通道。</span>
             </div>
           </Modal>
-          <TextField label="模型" value={form.model} onChange={(model) => setForm((current) => ({ ...current, model }))} />
+          <TextAreaField
+            label="负面提示词（可选）"
+            value={form.negativePrompt}
+            onChange={(negativePrompt) => setForm((current) => ({ ...current, negativePrompt }))}
+          />
+          <CapabilityModelField
+            label="模型"
+            loading={videoModels.loading}
+            message={videoModels.message}
+            modelIds={videoModels.modelIds}
+            value={form.model}
+            onChange={(model) => setForm((current) => ({ ...current, model }))}
+          />
           <div className="form-row three compact">
             <SelectField
               label="分辨率"
@@ -366,7 +397,7 @@ export function VideoPanel({ apiKey }: { apiKey: string }) {
             </div>
           </Card>
           <div className="toolbar flush">
-            <AntButton className="create-video-button" disabled={status.kind === "loading"} htmlType="submit" icon={<Clapperboard size={16} />} type="primary">
+            <AntButton className="create-video-button" disabled={status.kind === "loading" || videoModels.modelIds.length === 0} htmlType="submit" icon={<Clapperboard size={16} />} type="primary">
               创建视频任务
             </AntButton>
           </div>
@@ -518,6 +549,12 @@ function ReferenceColumn({
             ))}
           </div>
         </div>
+        {kind === "image" && (
+          <ClipboardImagePaste
+            label="粘贴图片参考"
+            onPasteImages={(files) => onFilesChange([...fileList, ...files])}
+          />
+        )}
       </div>
     </div>
   );

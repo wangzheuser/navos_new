@@ -159,7 +159,8 @@ The public document should cover the already-supported omni-reference payload:
 - videos: up to 3
 - audios: up to 3
 - text prompt remains required
-- when references are present, clients may set `mode` and `generation_mode` to `omni_reference`
+- when generic image, video, or audio references are present, clients may set `mode` and `generation_mode` to `omni_reference`
+- strict `first_frame` / `last_frame` tasks must omit omni-reference mode and cannot include other reference media
 
 Accepted image roles:
 

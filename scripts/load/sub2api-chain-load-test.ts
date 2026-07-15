@@ -193,8 +193,6 @@ const recipes: ScenarioRecipe[] = [
         prompt: `load test reference-to-video ${index}`,
         images: [referenceImageUrl],
         imageRoles: ["first_frame"],
-        mode: "omni_reference",
-        generation_mode: "omni_reference",
         durationSeconds: videoDurationSeconds,
         aspectRatio: videoAspectRatio,
         resolution: videoResolution
@@ -592,8 +590,6 @@ function buildSeedanceReferenceVideo(index: number): LoadRequest {
     prompt: `real load seedance reference video case ${index}: camera pushes through a neon AI operations room, smooth cinematic motion`,
     images: [referenceImageUrl],
     imageRoles: ["first_frame"],
-    mode: "omni_reference",
-    generation_mode: "omni_reference",
     durationSeconds: videoDurationSeconds,
     aspectRatio: videoAspectRatio,
     resolution: videoResolution,

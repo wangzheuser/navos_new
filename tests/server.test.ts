@@ -3347,7 +3347,7 @@ describe("server routes", () => {
         mode: "omni_reference",
         generation_mode: "omni_reference",
         images: ["data:image/png;base64,aGVsbG8=", "https://assets.test/style.png"],
-        imageRoles: ["first_frame", "reference_image"],
+        imageRoles: ["reference_image", "reference_image"],
         videos: ["data:video/mp4;base64,AAAA"],
         videoRoles: ["reference_video"],
         audioRefs: ["https://assets.test/music.mp3"],
@@ -3373,8 +3373,7 @@ describe("server routes", () => {
       size: "16:9",
       mode: "omni_reference",
       generation_mode: "omni_reference",
-      image_with_roles: [{ url: "https://cdn.test/upload-1.bin", role: "first_frame" }],
-      image_urls: ["https://assets.test/style.png"],
+      image_urls: ["https://cdn.test/upload-1.bin", "https://assets.test/style.png"],
       video_urls: ["https://cdn.test/upload-2.bin"],
       audio_urls: ["https://assets.test/music.mp3"],
       metadata: {

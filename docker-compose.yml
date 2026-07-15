@@ -4,6 +4,7 @@ services:
       context: .
     container_name: navos-new
     restart: unless-stopped
+    mem_limit: 256m
     env_file:
       - .env
     environment:
@@ -38,6 +39,7 @@ services:
       dockerfile: Dockerfile.web
     container_name: navos-web
     restart: unless-stopped
+    mem_limit: 64m
     ports:
       - "127.0.0.1:${NAVOS_WEB_BIND_PORT:-15173}:80"
     networks:
@@ -56,10 +58,15 @@ services:
     image: mysql:8.0
     container_name: navos-mysql
     restart: unless-stopped
+    mem_limit: 768m
     command: >
       --default-authentication-plugin=mysql_native_password
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
+      --innodb-buffer-pool-size=128M
+      --max-connections=50
+      --table-open-cache=400
+      --performance-schema=OFF
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-navos_new}
@@ -78,6 +85,7 @@ services:
     image: redis:8-alpine
     container_name: navos-redis
     restart: unless-stopped
+    mem_limit: 128m
     volumes:
       - ./redis_data:/data
     networks:

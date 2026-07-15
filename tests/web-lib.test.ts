@@ -123,6 +123,7 @@ describe("web helper modules", () => {
       {
         model: "navos/doubao-seedance-2-0-260128",
         prompt: "base prompt",
+        negativePrompt: "  人物变形，面罩改变  ",
         resolution: "720P",
         aspectRatio: "16:9",
         durationSeconds: 5,
@@ -139,6 +140,7 @@ describe("web helper modules", () => {
     expect(payload).toMatchObject({
       model: "navos/doubao-seedance-2-0-260128",
       prompt: "base prompt\n\n参考文字：keep the product color and slogan",
+      negative_prompt: "人物变形，面罩改变",
       resolution: "720P",
       aspectRatio: "16:9",
       durationSeconds: 5,
@@ -152,6 +154,48 @@ describe("web helper modules", () => {
       audioRefs: ["https://assets.test/music.mp3"],
       audioRoles: ["reference_audio"]
     });
+  });
+
+  it("builds strict first-frame payloads without omni-reference mode", () => {
+    const payload = buildVideoGenerationPayload(
+      {
+        model: "navos/doubao-seedance-2-0-260128",
+        prompt: "keep the opening composition",
+        negativePrompt: "   ",
+        resolution: "720P",
+        aspectRatio: "9:16",
+        durationSeconds: 5,
+        audio: false
+      },
+      {
+        images: [{ source: "https://assets.test/first.png", role: "first_frame" }]
+      }
+    );
+
+    expect(payload).toMatchObject({
+      images: ["https://assets.test/first.png"],
+      imageRoles: ["first_frame"]
+    });
+    expect(payload).not.toHaveProperty("mode");
+    expect(payload).not.toHaveProperty("generation_mode");
+    expect(payload).not.toHaveProperty("negative_prompt");
+  });
+
+  it("rejects mixed frame and omni-reference media", () => {
+    expect(() => buildVideoGenerationPayload(
+      {
+        model: "navos/doubao-seedance-2-0-260128",
+        prompt: "invalid mixed request",
+        resolution: "720P",
+        aspectRatio: "9:16",
+        durationSeconds: 5,
+        audio: false
+      },
+      {
+        images: [{ source: "https://assets.test/first.png", role: "first_frame" }],
+        videos: [{ source: "https://assets.test/motion.mp4", role: "reference_video" }]
+      }
+    )).toThrow("不能与全能参考");
   });
 
   it("summarizes account pool state and panel labels", () => {

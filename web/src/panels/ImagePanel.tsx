@@ -1,10 +1,12 @@
-import { type FormEvent, useState } from "react";
-import { Alert, Button as AntButton, Card, Input, InputNumber, Tag, Upload } from "antd";
+import { type FormEvent, useEffect, useState } from "react";
+import { Alert, Button as AntButton, Card, Image as AntImage, Input, InputNumber, Tag, Upload } from "antd";
 import type { UploadFile } from "antd/es/upload/interface";
 import { Download, ExternalLink, ImageIcon, Link2, Sparkles, UploadCloud } from "lucide-react";
 import { apiRequest, errorMessage } from "../api";
+import { CapabilityModelField } from "../components/capability-model-field";
+import { ClipboardImagePaste } from "../components/clipboard-image-paste";
 import { JsonBlock, StatusLine } from "../components/feedback";
-import { SelectField, TextField } from "../components/fields";
+import { SelectField } from "../components/fields";
 import { idleStatus } from "../app/defaults";
 import {
   buildImageGenerationRequest,
@@ -12,6 +14,7 @@ import {
   parseImageReferenceUrls,
   type ImageResult
 } from "../lib/image-generation";
+import { useCapabilityModels } from "../lib/use-capability-models";
 import type { StatusState } from "../types";
 
 const sizeOptions = [
@@ -25,12 +28,13 @@ const sizeOptions = [
 ];
 
 const qualityOptions = ["auto", "low", "medium", "high"];
+const IMAGE_DEFAULT_MODEL = "gpt-image-2";
 const IMAGE_POLL_INTERVAL_MS = 4000;
 const IMAGE_POLL_ATTEMPTS = 75;
 
 export function ImagePanel({ apiKey }: { apiKey: string }) {
   const [form, setForm] = useState({
-    model: "gpt-image-2",
+    model: IMAGE_DEFAULT_MODEL,
     prompt: "",
     size: "1024x1024",
     quality: "auto",
@@ -41,10 +45,23 @@ export function ImagePanel({ apiKey }: { apiKey: string }) {
   const [images, setImages] = useState<ImageResult[]>([]);
   const [referenceUrls, setReferenceUrls] = useState("");
   const [referenceFiles, setReferenceFiles] = useState<UploadFile[]>([]);
+  const imageModels = useCapabilityModels(apiKey, "image", IMAGE_DEFAULT_MODEL);
   const referenceCount = Math.min(8, parseImageReferenceUrls(referenceUrls).length + referenceFiles.length);
+
+  useEffect(() => {
+    if (imageModels.loading) return;
+    setForm((current) => {
+      const model = imageModels.modelIds.includes(current.model) ? current.model : imageModels.modelIds[0] ?? "";
+      return model === current.model ? current : { ...current, model };
+    });
+  }, [imageModels.loading, imageModels.modelIds]);
 
   async function generateImage(event: FormEvent) {
     event.preventDefault();
+    if (!form.model) {
+      setStatus({ kind: "error", message: "当前没有支持该功能的模型" });
+      return;
+    }
     const prompt = form.prompt.trim();
     if (!prompt) {
       setStatus({ kind: "error", message: "请填写图片提示词" });
@@ -90,7 +107,7 @@ export function ImagePanel({ apiKey }: { apiKey: string }) {
           <div id="image-title" className="panel-title">图片生成</div>
           <StatusLine status={status} />
         </div>
-        <Tag color="processing">gpt-image-2</Tag>
+        <Tag color="processing">{form.model || "无可用模型"}</Tag>
       </div>
 
       <div className="image-workbench">
@@ -111,8 +128,11 @@ export function ImagePanel({ apiKey }: { apiKey: string }) {
               onChange={(event) => setForm((current) => ({ ...current, prompt: event.target.value }))}
             />
           </label>
-          <TextField
+          <CapabilityModelField
             label="模型"
+            loading={imageModels.loading}
+            message={imageModels.message}
+            modelIds={imageModels.modelIds}
             value={form.model}
             onChange={(model) => setForm((current) => ({ ...current, model }))}
           />
@@ -195,12 +215,16 @@ export function ImagePanel({ apiKey }: { apiKey: string }) {
                   ))}
                 </div>
               </div>
+              <ClipboardImagePaste
+                label="粘贴参考图"
+                onPasteImages={(files) => setReferenceFiles((current) => [...current, ...files].slice(0, 8))}
+              />
             </div>
           </Card>
           <div className="toolbar flush">
             <AntButton
               className="image-generate-button"
-              disabled={status.kind === "loading"}
+              disabled={status.kind === "loading" || imageModels.modelIds.length === 0}
               htmlType="submit"
               icon={<Sparkles size={16} />}
               type="primary"
@@ -226,7 +250,11 @@ export function ImagePanel({ apiKey }: { apiKey: string }) {
               <div className="image-result-grid">
                 {images.map((image, index) => (
                   <figure className="image-result-tile" key={`${image.url}-${index}`}>
-                    <img alt={`生成图片 ${index + 1}`} src={image.url} />
+                    <AntImage
+                      alt={`生成图片 ${index + 1}`}
+                      preview={{ mask: "点击查看大图" }}
+                      src={image.url}
+                    />
                     <figcaption>
                       <span>#{index + 1}</span>
                       <span className="image-result-actions">

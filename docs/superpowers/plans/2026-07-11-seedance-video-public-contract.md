@@ -391,16 +391,8 @@ curl -X POST "$BASE_URL/v1/video/generations" \
     "resolution": "720P",
     "durationSeconds": 10,
     "aspectRatio": "9:16",
-    "mode": "omni_reference",
-    "generation_mode": "omni_reference",
-    "images": [
-      "https://assets.example.com/character.png",
-      "https://assets.example.com/style.png"
-    ],
-    "imageRoles": [
-      "first_frame",
-      "reference_image"
-    ]
+    "images": ["https://assets.example.com/character.png"],
+    "imageRoles": ["first_frame"]
   }'
 ```
 
@@ -410,6 +402,8 @@ Image limits:
 images: up to 9
 roles: reference_image, first_frame, last_frame
 ```
+
+Strict `first_frame` / `last_frame` generation and omni-reference generation are mutually exclusive. Strict frame tasks must omit `mode` and `generation_mode` and cannot include other reference media.
 
 ## Omni Reference Example
 

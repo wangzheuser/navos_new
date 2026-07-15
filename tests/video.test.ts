@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertVideoGenerationRules,
   createVideoTask,
   getVideoTask,
   normalizeSeedanceVideoPayload,
@@ -73,11 +74,11 @@ describe("video protocol", () => {
       aspectRatio: "16:9",
       resolution: "720p",
       images: [
-        "https://assets.test/first.png",
-        { url: "https://assets.test/last.png", role: "last_frame" },
-        "https://assets.test/style.png"
+        "https://assets.test/style-1.png",
+        "https://assets.test/style-2.png",
+        "https://assets.test/style-3.png"
       ],
-      imageRoles: ["first_frame", "last_frame", "reference_image"],
+      imageRoles: ["reference_image", "reference_image", "reference_image"],
       videos: [
         "https://assets.test/motion-1.mp4",
         "https://assets.test/motion-2.mp4",
@@ -100,11 +101,11 @@ describe("video protocol", () => {
       audio: true,
       generate_audio: true,
       size: "16:9",
-      image_with_roles: [
-        { url: "https://assets.test/first.png", role: "first_frame" },
-        { url: "https://assets.test/last.png", role: "last_frame" }
+      image_urls: [
+        "https://assets.test/style-1.png",
+        "https://assets.test/style-2.png",
+        "https://assets.test/style-3.png"
       ],
-      image_urls: ["https://assets.test/style.png"],
       video_urls: [
         "https://assets.test/motion-1.mp4",
         "https://assets.test/motion-2.mp4",
@@ -164,22 +165,35 @@ describe("video protocol", () => {
     expect(payload).not.toHaveProperty("metadata.reference_images");
   });
 
-  it("maps first and last frame references to official image_with_roles fields", () => {
+  it("maps first and last frame references to provider frame fields", () => {
     const payload = normalizeSeedanceVideoPayload({
       prompt: "transition between frames",
       images: ["https://assets.test/start.png", "https://assets.test/end.png"],
-      imageRoles: ["first_frame", "last_frame"]
+      imageRoles: ["first_frame", "last_frame"],
+      mode: "omni_reference",
+      generation_mode: "omni_reference"
     });
 
     expect(payload).toMatchObject({
-      image_with_roles: [
-        { url: "https://assets.test/start.png", role: "first_frame" },
-        { url: "https://assets.test/end.png", role: "last_frame" }
-      ]
+      image: "https://assets.test/start.png",
+      imageRoles: ["first_frame"],
+      last_frame_image: "https://assets.test/end.png",
+      image_tail_url: "https://assets.test/end.png"
     });
-    expect(payload).not.toHaveProperty("image");
-    expect(payload).not.toHaveProperty("last_frame_image");
-    expect(payload).not.toHaveProperty("image_tail_url");
+    expect(payload).not.toHaveProperty("image_with_roles");
+    expect(payload).not.toHaveProperty("mode");
+    expect(payload).not.toHaveProperty("generation_mode");
+  });
+
+  it("rejects mixing strict frame images with omni-reference media", () => {
+    const request = {
+      prompt: "invalid mixed request",
+      images: ["https://assets.test/start.png", "https://assets.test/style.png"],
+      imageRoles: ["first_frame", "reference_image"]
+    };
+
+    expect(() => assertVideoGenerationRules(request)).toThrow("不能与全能参考");
+    expect(() => normalizeSeedanceVideoPayload(request)).toThrow("不能与全能参考");
   });
 
   it("uploads local data URL references before creating a video payload", async () => {
@@ -197,7 +211,7 @@ describe("video protocol", () => {
       {
         prompt: "use all media",
         images: ["data:image/png;base64,aGVsbG8=", "https://assets.test/style.png"],
-        imageRoles: ["first_frame", "reference_image"],
+        imageRoles: ["reference_image", "reference_image"],
         videos: ["data:video/mp4;base64,AAAA"],
         audioRefs: ["data:audio/mpeg;base64,AAAA"]
       },
@@ -210,8 +224,7 @@ describe("video protocol", () => {
       "/api/uploads/file"
     ]);
     expect(payload).toMatchObject({
-      image_with_roles: [{ url: "https://cdn.test/ref-1.bin", role: "first_frame" }],
-      image_urls: ["https://assets.test/style.png"],
+      image_urls: ["https://cdn.test/ref-1.bin", "https://assets.test/style.png"],
       video_urls: ["https://cdn.test/ref-2.bin"],
       audio_urls: ["https://cdn.test/ref-3.bin"]
     });
