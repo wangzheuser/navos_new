@@ -4,6 +4,7 @@ import { Bot, Send, Sparkles } from "lucide-react";
 import { apiRequest, errorMessage } from "../api";
 import { StatusLine } from "../components/feedback";
 import { idleStatus } from "../app/defaults";
+import { modelIdsByOutput, normalizeModelList } from "../lib/model-catalog";
 import type { StatusState } from "../types";
 
 type ChatRole = "user" | "assistant";
@@ -14,17 +15,29 @@ interface ChatMessage {
 }
 
 const FALLBACK_MODELS = [
+  "claude-opus-4-8",
+  "claude-opus-4-7",
+  "claude-opus-4-6",
+  "claude-opus-4-5",
+  "claude-sonnet-4-6",
+  "claude-sonnet-4-5",
+  "claude-haiku-4-5",
   "gpt-5.5",
-  "openai.gpt-5.5",
+  "gpt-5.4-pro",
   "gpt-5.4",
   "gpt-5.4-mini",
-  "ospu-4.8",
-  "ospu-4.6",
-  "sonnet-4.6",
-  "sonnet-4.5",
-  "haiku-4.5",
-  "gpt-image-2",
-  "doubao-seedance-2-0-260128"
+  "gpt-5.4-nano",
+  "gpt-5.3-codex",
+  "gpt-5.2",
+  "gpt-5.2-codex",
+  "deepseek-v4-pro",
+  "qwen3.6-plus",
+  "qwen3.5-plus",
+  "qwen3-coder-plus",
+  "qwen3-max",
+  "kimi-k2.6",
+  "glm-5.0",
+  "glm-5.1"
 ];
 
 export function ChatPanel({ apiKey }: { apiKey: string }) {
@@ -41,7 +54,7 @@ export function ChatPanel({ apiKey }: { apiKey: string }) {
       try {
         const response = await apiRequest<unknown>(apiKey, "/v1/models", { method: "GET" });
         if (!active) return;
-        const loadedModels = modelIdsFromResponse(response);
+        const loadedModels = modelIdsByOutput(normalizeModelList(response), "text");
         if (loadedModels.length > 0) {
           setModels(loadedModels);
           setModel((current) => loadedModels.includes(current) ? current : loadedModels[0]);
@@ -156,35 +169,6 @@ export function ChatPanel({ apiKey }: { apiKey: string }) {
   );
 }
 
-function modelIdsFromResponse(value: unknown): string[] {
-  const source = readContainerArray(value);
-  const ids = source
-    .map((item) => typeof item === "string" ? item : readString(item, ["id", "model", "name"]))
-    .filter((item): item is string => Boolean(item));
-  return [...new Set(ids)];
-}
-
-function readContainerArray(value: unknown): unknown[] {
-  if (Array.isArray(value)) {
-    return value;
-  }
-  if (!value || typeof value !== "object") {
-    return [];
-  }
-  const record = value as Record<string, unknown>;
-  for (const key of ["data", "models", "items", "list"]) {
-    const candidate = record[key];
-    if (Array.isArray(candidate)) {
-      return candidate;
-    }
-    const nested = readContainerArray(candidate);
-    if (nested.length > 0) {
-      return nested;
-    }
-  }
-  return [];
-}
-
 function extractAssistantText(value: unknown): string {
   if (!value || typeof value !== "object") {
     return typeof value === "string" && value ? value : "（没有返回文本）";
@@ -220,18 +204,4 @@ function collectContent(value: unknown): string {
     return collectContent(record.text ?? record.content);
   }
   return "";
-}
-
-function readString(value: unknown, keys: string[]): string | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-  const record = value as Record<string, unknown>;
-  for (const key of keys) {
-    const candidate = record[key];
-    if (typeof candidate === "string" && candidate) {
-      return candidate;
-    }
-  }
-  return undefined;
 }

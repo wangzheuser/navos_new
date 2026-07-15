@@ -6,6 +6,7 @@ describe("model proxy", () => {
   it("describes model capabilities consistently across canonical ids and aliases", () => {
     expect(modelCapabilities("gpt-5.5")).toEqual({ input: ["text", "image"], output: ["text"], tools: true });
     expect(modelCapabilities("openai.gpt-5.5")).toEqual(modelCapabilities("gpt-5.5"));
+    expect(modelCapabilities("claude-opus-4-7")).toEqual({ input: ["text", "image"], output: ["text"], tools: true });
     expect(modelCapabilities("claude-sonnet-4-6")).toEqual({ input: ["text", "image"], output: ["text"], tools: true });
     expect(modelCapabilities("sonnet-4.6")).toEqual(modelCapabilities("claude-sonnet-4-6"));
     expect(modelCapabilities("deepseek-v4-pro")).toEqual({ input: ["text"], output: ["text"], tools: true });
@@ -16,6 +17,33 @@ describe("model proxy", () => {
       tools: false
     });
     expect(modelCapabilities("future-model")).toEqual({ input: ["text"], output: ["text"], tools: false });
+  });
+
+  it("maps preferred text-model aliases to upstream canonical ids", async () => {
+    const cases = [
+      ["deepseek-v4-pro", "deepseek.deepseek-v4-pro"],
+      ["qwen3.5-plus", "qwen.qwen3.5-plus"],
+      ["qwen3-coder-plus", "qwen.qwen3-coder-plus"],
+      ["kimi-k2.6", "moonshot.kimi-k2.6"],
+      ["glm-5.1", "zai.glm-5.1"]
+    ];
+
+    for (const [alias, canonical] of cases) {
+      let capturedBody: Record<string, unknown> = {};
+      const client = new ProviderHttpClient("https://upstream.test", async (_url, init) => {
+        capturedBody = JSON.parse(String(init?.body));
+        return Response.json({ choices: [{ message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] });
+      });
+
+      await forwardModelRequest(client, {
+        method: "POST",
+        path: "/v1/chat/completions",
+        body: { model: alias, messages: [{ role: "user", content: "hi" }] },
+        headers: { authorization: "Bearer t" }
+      });
+
+      expect(capturedBody.model).toBe(canonical);
+    }
   });
 
   it("routes Claude chat completions through Anthropic messages and wraps the response", async () => {
@@ -37,7 +65,7 @@ describe("model proxy", () => {
       method: "POST",
       path: "/v1/chat/completions",
       body: {
-        model: "ospu-4.8",
+        model: "claude-opus-4-8",
         messages: [{ role: "user", content: "Reply OK only." }],
         max_completion_tokens: 1024,
         stream: false

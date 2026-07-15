@@ -143,15 +143,21 @@ describe("admin app gate", () => {
     fireEvent.click(await screen.findByRole("button", { name: "模型列表" }));
 
     expect(await screen.findByRole("heading", { level: 2, name: "模型列表" })).toBeInTheDocument();
-    const gptCapabilities = screen.getByLabelText("gpt-5.5 能力");
-    expect(within(gptCapabilities).getByText("IN · TEXT")).toBeInTheDocument();
-    expect(within(gptCapabilities).getByText("IN · IMAGE")).toBeInTheDocument();
-    expect(within(gptCapabilities).getByText("OUT · TEXT")).toBeInTheDocument();
-    expect(within(gptCapabilities).getByText("TOOLS")).toBeInTheDocument();
-    const legacyCapabilities = screen.getByLabelText("legacy-model 能力");
-    expect(within(legacyCapabilities).getByText("IN · TEXT")).toBeInTheDocument();
-    expect(within(legacyCapabilities).getByText("OUT · TEXT")).toBeInTheDocument();
-    expect(within(legacyCapabilities).queryByText("TOOLS")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+      "模型 ID",
+      "输入能力",
+      "输出能力",
+      "工具调用"
+    ]);
+    const gptCells = within(screen.getByRole("row", { name: "gpt-5.5 能力" })).getAllByRole("cell");
+    expect(within(gptCells[1]).getByText("TEXT")).toBeInTheDocument();
+    expect(within(gptCells[1]).getByText("IMAGE")).toBeInTheDocument();
+    expect(within(gptCells[2]).getByText("TEXT")).toBeInTheDocument();
+    expect(within(gptCells[3]).getByText("TOOLS")).toBeInTheDocument();
+    const legacyCells = within(screen.getByRole("row", { name: "legacy-model 能力" })).getAllByRole("cell");
+    expect(within(legacyCells[1]).getByText("TEXT")).toBeInTheDocument();
+    expect(within(legacyCells[2]).getByText("TEXT")).toBeInTheDocument();
+    expect(within(legacyCells[3]).getByText("—")).toBeInTheDocument();
 
     fireEvent.doubleClick(screen.getByRole("button", { name: "gpt-5.5" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("gpt-5.5"));
@@ -370,15 +376,15 @@ describe("admin app gate", () => {
       if (path === "/v1/models" && init?.method === "GET") {
         return Response.json({
           data: [
-            { id: "openai.gpt-5.5" },
-            { id: "claude.sonnet-4.6" }
+            { id: "gpt-5.5", capabilities: { input: ["text", "image"], output: ["text"], tools: true } },
+            { id: "claude-sonnet-4-6", capabilities: { input: ["text", "image"], output: ["text"], tools: true } }
           ]
         });
       }
       if (path === "/v1/chat/completions" && init?.method === "POST") {
         const payload = JSON.parse(String(init.body));
         expect(payload).toMatchObject({
-          model: "claude.sonnet-4.6",
+          model: "claude-sonnet-4-6",
           stream: false,
           messages: [{ role: "user", content: "你好，介绍一下自己" }]
         });
@@ -401,7 +407,7 @@ describe("admin app gate", () => {
     await screen.findByRole("heading", { name: "聊天" });
 
     fireEvent.mouseDown(screen.getByLabelText("模型"));
-    fireEvent.click(await screen.findByRole("option", { name: "claude.sonnet-4.6" }));
+    fireEvent.click(await screen.findByRole("option", { name: "claude-sonnet-4-6" }));
     fireEvent.change(screen.getByLabelText("输入消息"), {
       target: { value: "你好，介绍一下自己" }
     });

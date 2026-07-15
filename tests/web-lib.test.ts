@@ -121,7 +121,7 @@ describe("web helper modules", () => {
   it("builds video payloads with text, image, video and audio references", () => {
     const payload = buildVideoGenerationPayload(
       {
-        model: "navos/doubao-seedance-2-0-260128",
+        model: "doubao-seedance-2-0-260128",
         prompt: "base prompt",
         negativePrompt: "  人物变形，面罩改变  ",
         resolution: "720P",
@@ -138,7 +138,7 @@ describe("web helper modules", () => {
     );
 
     expect(payload).toMatchObject({
-      model: "navos/doubao-seedance-2-0-260128",
+      model: "doubao-seedance-2-0-260128",
       prompt: "base prompt\n\n参考文字：keep the product color and slogan",
       negative_prompt: "人物变形，面罩改变",
       resolution: "720P",
@@ -159,7 +159,7 @@ describe("web helper modules", () => {
   it("builds strict first-frame payloads without omni-reference mode", () => {
     const payload = buildVideoGenerationPayload(
       {
-        model: "navos/doubao-seedance-2-0-260128",
+        model: "doubao-seedance-2-0-260128",
         prompt: "keep the opening composition",
         negativePrompt: "   ",
         resolution: "720P",
@@ -184,7 +184,7 @@ describe("web helper modules", () => {
   it("rejects mixed frame and omni-reference media", () => {
     expect(() => buildVideoGenerationPayload(
       {
-        model: "navos/doubao-seedance-2-0-260128",
+        model: "doubao-seedance-2-0-260128",
         prompt: "invalid mixed request",
         resolution: "720P",
         aspectRatio: "9:16",

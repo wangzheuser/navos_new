@@ -22,7 +22,7 @@ import {
 import { useCapabilityModels } from "../lib/use-capability-models";
 import type { StatusState, VideoTaskView } from "../types";
 
-const VIDEO_DEFAULT_MODEL = "navos/doubao-seedance-2-0-260128";
+const VIDEO_DEFAULT_MODEL = "doubao-seedance-2-0-260128";
 
 export function VideoPanel({ apiKey }: { apiKey: string }) {
   const [form, setForm] = useState({

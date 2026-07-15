@@ -50,38 +50,68 @@ export function ModelListPanel({ apiKey }: { apiKey: string }) {
         </div>
       </div>
       {models.length > 0 ? (
-        <ul className="model-list" aria-label="可用模型">
-          {models.map((model) => {
-            const capabilities = model.capabilities ?? DEFAULT_MODEL_CAPABILITIES;
-            return (
-              <li className="model-list-item" key={model.id}>
-                <button
-                  className="model-id-button mono"
-                  onDoubleClick={() => void copyModelId(model.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void copyModelId(model.id);
-                    }
-                  }}
-                  title="双击复制模型 ID"
-                  type="button"
-                >
-                  {model.id}
-                </button>
-                <div className="model-capabilities" aria-label={`${model.id} 能力`}>
-                  {capabilities.input.map((modality) => (
-                    <Tag className="model-capability input" key={`in-${modality}`}>IN · {modality.toUpperCase()}</Tag>
-                  ))}
-                  {capabilities.output.map((modality) => (
-                    <Tag className="model-capability output" key={`out-${modality}`}>OUT · {modality.toUpperCase()}</Tag>
-                  ))}
-                  {capabilities.tools && <Tag className="model-capability tools">TOOLS</Tag>}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="model-table-scroll">
+          <table className="model-table" aria-label="可用模型">
+            <colgroup>
+              <col className="model-column-id" />
+              <col className="model-column-capability" />
+              <col className="model-column-capability" />
+              <col className="model-column-tools" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th scope="col">模型 ID</th>
+                <th scope="col">输入能力</th>
+                <th scope="col">输出能力</th>
+                <th scope="col">工具调用</th>
+              </tr>
+            </thead>
+            <tbody>
+              {models.map((model) => {
+                const capabilities = model.capabilities ?? DEFAULT_MODEL_CAPABILITIES;
+                return (
+                  <tr aria-label={`${model.id} 能力`} key={model.id}>
+                    <td>
+                      <button
+                        className="model-id-button mono"
+                        onDoubleClick={() => void copyModelId(model.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void copyModelId(model.id);
+                          }
+                        }}
+                        title="双击复制模型 ID"
+                        type="button"
+                      >
+                        {model.id}
+                      </button>
+                    </td>
+                    <td>
+                      <div className="model-capability-cell">
+                        {capabilities.input.map((modality) => (
+                          <Tag className="model-capability input" key={modality}>{modality.toUpperCase()}</Tag>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="model-capability-cell">
+                        {capabilities.output.map((modality) => (
+                          <Tag className="model-capability output" key={modality}>{modality.toUpperCase()}</Tag>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      {capabilities.tools
+                        ? <Tag className="model-capability tools">TOOLS</Tag>
+                        : <span className="model-capability-empty">—</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <p className="empty">{status.kind === "loading" ? "正在加载" : "暂无可用模型"}</p>
       )}

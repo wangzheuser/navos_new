@@ -27,12 +27,13 @@ const ALLOWED_PATHS = new Set([
 ]);
 
 const CLAUDE_MODEL_IDS = [
-  "ospu-4.8",
-  "ospu-4.6",
-  "ospu-4.5",
-  "sonnet-4.6",
-  "sonnet-4.5",
-  "haiku-4.5"
+  "claude-opus-4-8",
+  "claude-opus-4-7",
+  "claude-opus-4-6",
+  "claude-opus-4-5",
+  "claude-sonnet-4-6",
+  "claude-sonnet-4-5",
+  "claude-haiku-4-5"
 ];
 
 const OPENAI_FAMILY_MODELS: Record<string, string> = {
@@ -68,6 +69,8 @@ const OPENAI_FAMILY_ALIASES: Record<string, string> = {
   "gpt-5.2-codex": "openai.gpt-5.2-codex",
   "deepseek-v4-pro": "deepseek.deepseek-v4-pro",
   "qwen3.6-plus": "qwen.qwen3.6-plus",
+  "qwen3.5-plus": "qwen.qwen3.5-plus",
+  "qwen3-coder-plus": "qwen.qwen3-coder-plus",
   "qwen3-max": "qwen.qwen3-max",
   "kimi-k2.6": "moonshot.kimi-k2.6",
   "glm-5.0": "zai.glm-5.0",
@@ -76,6 +79,25 @@ const OPENAI_FAMILY_ALIASES: Record<string, string> = {
   "glm5.1": "zai.glm-5.1"
 };
 
+const OPENAI_FAMILY_PREFERRED_MODEL_IDS = [
+  "gpt-5.5",
+  "gpt-5.4-pro",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.4-nano",
+  "gpt-5.3-codex",
+  "gpt-5.2",
+  "gpt-5.2-codex",
+  "deepseek-v4-pro",
+  "qwen3.6-plus",
+  "qwen3.5-plus",
+  "qwen3-coder-plus",
+  "qwen3-max",
+  "kimi-k2.6",
+  "glm-5.0",
+  "glm-5.1"
+];
+
 export const PUBLIC_PROXY_MODEL_IDS = [
   "claude-opus-4-6",
   "claude-opus-4-7",
@@ -83,7 +105,6 @@ export const PUBLIC_PROXY_MODEL_IDS = [
   "claude-sonnet-4-6",
   "claude-sonnet-4-5",
   "claude-haiku-4-5",
-  "codex",
   "gpt-5.5",
   "gpt-5.3-codex",
   "gpt-5.2-codex",
@@ -156,10 +177,8 @@ const PUBLIC_PROXY_MODEL_ALIASES: Record<string, string> = {
 
 export const LOCAL_MODEL_IDS = [
   ...CLAUDE_MODEL_IDS,
-  ...Object.keys(OPENAI_FAMILY_MODELS),
-  ...Object.keys(OPENAI_FAMILY_ALIASES),
+  ...OPENAI_FAMILY_PREFERRED_MODEL_IDS,
   "gpt-image-2",
-  "navos/doubao-seedance-2-0-260128",
   "doubao-seedance-2-0-260128"
 ];
 
@@ -265,7 +284,7 @@ async function forwardAnthropicMessages<T = unknown>(
   request: ModelProxyRequest
 ): Promise<ProviderResult<T>> {
   const body = bodyRecord(request.body);
-  const model = readString(body.model) ?? "sonnet-4.6";
+  const model = readString(body.model) ?? "claude-sonnet-4-6";
   return client.requestJson<T>("POST", "/v1/messages", buildAnthropicMessagesPassthroughBody(body, model), {
     ...request.headers,
     "anthropic-version": request.headers["anthropic-version"] ?? "2023-06-01"
@@ -322,7 +341,7 @@ async function forwardChatCompletion<T = unknown>(
   request: ModelProxyRequest
 ): Promise<ProviderResult<T>> {
   const body = bodyRecord(request.body);
-  const model = readString(body.model) ?? "sonnet-4.6";
+  const model = readString(body.model) ?? "claude-sonnet-4-6";
   const openAiModel = resolveOpenAiModel(model);
   if (openAiModel) {
     if (!usesOpenAiResponsesPath(openAiModel)) {

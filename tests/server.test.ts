@@ -935,13 +935,43 @@ describe("server routes", () => {
           id: "gpt-5.5",
           capabilities: { input: ["text", "image"], output: ["text"], tools: true }
         }),
-        expect.objectContaining({ id: "openai.gpt-5.5" }),
-        expect.objectContaining({ id: "ospu-4.8" }),
-        expect.objectContaining({ id: "ospu-4.6" }),
-        expect.objectContaining({ id: "sonnet-4.6" }),
-        expect.objectContaining({ id: "haiku-4.5" })
+        expect.objectContaining({ id: "claude-opus-4-8" }),
+        expect.objectContaining({ id: "claude-opus-4-7" }),
+        expect.objectContaining({ id: "claude-opus-4-6" }),
+        expect.objectContaining({ id: "claude-sonnet-4-6" }),
+        expect.objectContaining({ id: "claude-haiku-4-5" }),
+        expect.objectContaining({ id: "qwen3.5-plus" }),
+        expect.objectContaining({ id: "qwen3-coder-plus" })
       ])
     });
+    const ids = response.json().data.map((item: { id: string }) => item.id);
+    expect(ids).toEqual([
+      "claude-opus-4-8",
+      "claude-opus-4-7",
+      "claude-opus-4-6",
+      "claude-opus-4-5",
+      "claude-sonnet-4-6",
+      "claude-sonnet-4-5",
+      "claude-haiku-4-5",
+      "gpt-5.5",
+      "gpt-5.4-pro",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.4-nano",
+      "gpt-5.3-codex",
+      "gpt-5.2",
+      "gpt-5.2-codex",
+      "deepseek-v4-pro",
+      "qwen3.6-plus",
+      "qwen3.5-plus",
+      "qwen3-coder-plus",
+      "qwen3-max",
+      "kimi-k2.6",
+      "glm-5.0",
+      "glm-5.1",
+      "gpt-image-2",
+      "doubao-seedance-2-0-260128"
+    ]);
   });
 
   it("serves the local model catalog for the master key without a provider account", async () => {
@@ -962,8 +992,8 @@ describe("server routes", () => {
     expect(response.statusCode).toBe(200);
     const ids = response.json().data.map((item: { id: string }) => item.id);
     expect(ids).toContain("gpt-image-2");
-    expect(ids).toContain("navos/doubao-seedance-2-0-260128");
     expect(ids).toContain("doubao-seedance-2-0-260128");
+    expect(ids).not.toContain("navos/doubao-seedance-2-0-260128");
     expect(response.json().data.find((item: { id: string }) => item.id === "gpt-image-2").capabilities).toEqual({
       input: ["text", "image"],
       output: ["image"],
@@ -995,13 +1025,13 @@ describe("server routes", () => {
       "claude-sonnet-4-6",
       "claude-sonnet-4-5",
       "claude-haiku-4-5",
-      "codex",
       "gpt-5.5",
       "gpt-5.3-codex",
       "gpt-5.2-codex",
       "gpt-image-2"
     ]);
     expect(ids).not.toContain("claude.opus-4.8");
+    expect(ids).not.toContain("codex");
     expect(ids).not.toContain("qwen.qwen3.6-plus");
     expect(models.json().data.find((item: { id: string }) => item.id === "claude-sonnet-4-6").capabilities).toEqual({
       input: ["text", "image"],

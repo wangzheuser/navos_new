@@ -1896,29 +1896,56 @@ a.button {
   grid-column: 1 / -1;
 }
 
-.model-list {
-  margin: 0;
+.model-table-scroll {
+  overflow-x: auto;
   padding: 0 14px 14px;
-  list-style: none;
 }
 
-.model-list-item {
-  display: flex;
-  align-items: center;
-  gap: 18px;
+.model-table {
+  width: 100%;
+  min-width: 760px;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.model-column-id {
+  width: 38%;
+}
+
+.model-column-capability {
+  width: 24%;
+}
+
+.model-column-tools {
+  width: 14%;
+}
+
+.model-table th,
+.model-table td {
+  padding: 9px 12px;
   border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
 }
 
-.model-list-item:last-child {
+.model-table th {
+  background: rgba(239, 246, 255, 0.72);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.model-table tbody tr:last-child td {
   border-bottom: 0;
 }
 
 .model-id-button {
-  min-width: min(340px, 42vw);
+  width: 100%;
   border: 0;
   background: transparent;
   color: var(--ink);
-  padding: 8px 0;
+  padding: 0;
   text-align: left;
   cursor: copy;
 }
@@ -1929,12 +1956,14 @@ a.button {
   outline-offset: 3px;
 }
 
-.model-capabilities {
+.model-capability-cell {
   display: flex;
-  flex: 1;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 6px;
+}
+
+.model-capability-empty {
+  color: var(--muted);
 }
 
 .model-capability {
@@ -1995,20 +2024,6 @@ a.button {
   .form-row.three,
   .probe-grid {
     grid-template-columns: 1fr;
-  }
-
-  .model-list-item {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .model-id-button {
-    min-width: 0;
-    width: 100%;
-  }
-
-  .model-capabilities {
-    justify-content: flex-start;
   }
 
   .gate {
