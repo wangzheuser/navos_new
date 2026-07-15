@@ -19,6 +19,31 @@ describe("model proxy", () => {
     expect(modelCapabilities("future-model")).toEqual({ input: ["text"], output: ["text"], tools: false });
   });
 
+  it("routes newly discovered provider-native models through the OpenAI-compatible path", async () => {
+    let capturedUrl = "";
+    let capturedBody: Record<string, unknown> = {};
+    const client = new ProviderHttpClient("https://upstream.test", async (url, init) => {
+      capturedUrl = String(url);
+      capturedBody = JSON.parse(String(init?.body));
+      return Response.json({ choices: [{ message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] });
+    });
+
+    await forwardModelRequest(client, {
+      method: "POST",
+      path: "/v1/chat/completions",
+      body: { model: "google.gemini-4-pro", messages: [{ role: "user", content: "hi" }] },
+      headers: { authorization: "Bearer t" }
+    });
+
+    expect(capturedUrl).toBe("https://upstream.test/chat/completions");
+    expect(capturedBody.model).toBe("google.gemini-4-pro");
+    expect(modelCapabilities("google.gemini-4-pro")).toEqual({
+      input: ["text"],
+      output: ["text"],
+      tools: true
+    });
+  });
+
   it("maps preferred text-model aliases to upstream canonical ids", async () => {
     const cases = [
       ["deepseek-v4-pro", "deepseek.deepseek-v4-pro"],

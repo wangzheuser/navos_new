@@ -542,6 +542,21 @@ function publicModelCatalog() {
   };
 }
 
+function upstreamModelCatalog(value: unknown) {
+  if (!value || typeof value !== "object" || !Array.isArray((value as { data?: unknown }).data)) {
+    return undefined;
+  }
+  const data = (value as { data: unknown[] }).data.flatMap((model) => {
+    if (!model || typeof model !== "object" || typeof (model as { id?: unknown }).id !== "string") {
+      return [];
+    }
+    const record = model as Record<string, unknown>;
+    const id = (record.id as string).trim();
+    return id ? [{ ...record, id, capabilities: record.capabilities ?? modelCapabilities(id) }] : [];
+  });
+  return data.length > 0 ? { object: "list", data } : undefined;
+}
+
 function readBodyModel(body: Record<string, unknown>): string | undefined {
   return typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;
 }
@@ -1651,6 +1666,25 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
     if (isPublicProxyOnly(request)) {
       await reply.send(publicModelCatalog());
       return;
+    }
+    const account = await accountService.pickAccount();
+    if (account) {
+      try {
+        const result = await forwardModelRequest(client, {
+          method: "GET",
+          path: "/v1/models",
+          headers: buildProviderAuthHeaders(account, options.providerAuthMode),
+          signal: AbortSignal.timeout(5_000)
+        });
+        const catalog = result.status >= 200 && result.status < 300 ? upstreamModelCatalog(result.body) : undefined;
+        if (catalog) {
+          await reply.send(catalog);
+          return;
+        }
+        await depleteProviderAccountIfNeeded(account.uid, result);
+      } catch {
+        // The fallback keeps the control panel usable while the provider is unavailable.
+      }
     }
     await reply.send(localModelCatalog());
   });

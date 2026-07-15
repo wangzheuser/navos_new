@@ -866,7 +866,11 @@ function resolveOpenAiModel(model: string): string | undefined {
   if (OPENAI_FAMILY_MODELS[name]) {
     return name;
   }
-  return OPENAI_FAMILY_ALIASES[name];
+  const alias = OPENAI_FAMILY_ALIASES[name];
+  if (alias) {
+    return alias;
+  }
+  return !name.startsWith("claude.") && /^[a-z][a-z0-9_-]*\.[a-z]/.test(name) ? name : undefined;
 }
 
 function convertOpenAiMessagesToAnthropic(messages: unknown[]): Array<Record<string, unknown>> {

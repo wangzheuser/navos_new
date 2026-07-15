@@ -912,6 +912,86 @@ describe("server routes", () => {
     expect(authorized.statusCode).toBe(200);
   });
 
+  it("serves the current upstream model catalog to the master key", async () => {
+    let requestedUrl = "";
+    let authorization = "";
+    const app = createApp({
+      masterApiKey: "sk-test",
+      providerBaseUrl: "https://upstream.test",
+      providerAuthMode: "uid-token",
+      accountService: new AccountService(new InMemoryAccountStore({ uid: "u1", token: "t1" })),
+      fetchImpl: async (url, init) => {
+        requestedUrl = String(url);
+        authorization = new Headers(init?.headers).get("authorization") ?? "";
+        return Response.json({
+          object: "list",
+          data: [
+            { id: "openai.gpt-5.6", object: "model", owned_by: "openai" },
+            { id: "claude.opus-4.9", object: "model", owned_by: "anthropic" }
+          ]
+        });
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/models",
+      headers: { authorization: "Bearer sk-test" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(requestedUrl).toBe("https://upstream.test/v1/models");
+    expect(authorization).toBe("Bearer u1:t1");
+    expect(response.json()).toEqual({
+      object: "list",
+      data: [
+        {
+          id: "openai.gpt-5.6",
+          object: "model",
+          owned_by: "openai",
+          capabilities: { input: ["text", "image"], output: ["text"], tools: true }
+        },
+        {
+          id: "claude.opus-4.9",
+          object: "model",
+          owned_by: "anthropic",
+          capabilities: { input: ["text", "image"], output: ["text"], tools: true }
+        }
+      ]
+    });
+  });
+
+  it("times out upstream model discovery before falling back to the local catalog", async () => {
+    const timeoutSignal = AbortSignal.abort(new DOMException("catalog timeout", "TimeoutError"));
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(timeoutSignal);
+    let forwardedSignal: AbortSignal | null | undefined;
+    const app = createApp({
+      masterApiKey: "sk-test",
+      providerBaseUrl: "https://upstream.test",
+      providerAuthMode: "uid-token",
+      accountService: new AccountService(new InMemoryAccountStore({ uid: "u1", token: "t1" })),
+      fetchImpl: async (_url, init) => {
+        forwardedSignal = init?.signal;
+        return Response.json({ error: "gateway timeout" }, { status: 504 });
+      }
+    });
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/models",
+        headers: { authorization: "Bearer sk-test" }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data.map((model: { id: string }) => model.id)).toContain("gpt-5.5");
+      expect(timeoutSpy).toHaveBeenCalledWith(5_000);
+      expect(forwardedSignal).toBe(timeoutSignal);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it("serves the local model catalog when the upstream models endpoint is missing", async () => {
     const app = createApp({
       masterApiKey: "sk-test",
